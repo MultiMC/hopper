@@ -4,9 +4,8 @@
 *.kdev4
 .kdev4/
 
-# Build logs and automation state
+# Build logs
 *.log
-state/
 
 # Python bytecode
 __pycache__/
