@@ -1,0 +1,12 @@
+.env
+
+# KDevelop project files
+*.kdev4
+.kdev4/
+
+# Build logs and automation state
+*.log
+state/
+
+# Python bytecode
+__pycache__/

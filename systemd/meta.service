@@ -2,7 +2,7 @@
 # update.sh, from its checkout in ~/meta, as the hopper user. Started hourly by meta.timer
 # (deth001 ran it from root's crontab, `0 * * * *`).
 #
-#   systemctl --user link ~/Toolchains/automation/systemd/meta.service ~/Toolchains/automation/systemd/meta.timer
+#   systemctl --user link ~/hopper/systemd/meta.service ~/hopper/systemd/meta.timer
 #   systemctl --user start meta.service      # one run now
 #   systemctl --user enable --now meta.timer
 #   journalctl _SYSTEMD_USER_UNIT=meta.service -f    (as an admin; see hopper@.service)

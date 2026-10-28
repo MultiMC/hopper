@@ -13,10 +13,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-AUTOMATION = Path(__file__).resolve().parent
-TOOLCHAINS = AUTOMATION.parent
-STATE = AUTOMATION / "state"
-DEFAULTS = AUTOMATION / "defaults.env"
+HOPPER = Path(__file__).resolve().parent
+STATE = HOPPER / "state"
+DEFAULTS = HOPPER / "defaults.env"
 
 
 # --- platforms ---------------------------------------------------------------------------
@@ -52,7 +51,7 @@ def platform(name):
 #
 # defaults.env lists every setting with its default. A config file (--config) overrides
 # some of them, the environment overrides both. Both files are KEY=value lines; values may
-# be quoted and may use $TOOLCHAINS, $HOME and settings defined before them.
+# be quoted and may use $HOPPER, $HOME and settings defined before them.
 
 SETTING_LINE = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
 VARIABLE = re.compile(r"\$(?:\{(\w+)\}|(\w+))")
@@ -94,7 +93,7 @@ class Settings(dict):
 
 
 def load_settings(config_file=None):
-    base = {"TOOLCHAINS": str(TOOLCHAINS), "HOME": os.environ.get("HOME", "")}
+    base = {"HOPPER": str(HOPPER), "HOME": os.environ.get("HOME", "")}
     defaults = read_env_file(DEFAULTS, base)
     values = dict(defaults)
     if config_file:
@@ -359,7 +358,7 @@ def build_command(settings, plat, src, out, build_number):
     env = {**settings, "PLATFORM": plat.name, "BUILD_NUMBER": str(build_number)}
     command = container_run(settings) + ["--network", "none",
                "-v", "%s:/src:ro" % src, "-v", "%s:/out" % out,
-               "-v", "%s:/build:ro" % (AUTOMATION / "build")]
+               "-v", "%s:/build:ro" % (HOPPER / "build")]
     for key, value in env.items():
         command += ["-e", "%s=%s" % (key, value)]
     return command + [settings[plat.image_setting], "bash", "/build/" + plat.script]

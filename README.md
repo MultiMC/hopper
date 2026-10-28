@@ -1,7 +1,12 @@
-# Build automation
+# hopper
 
-Replaces the TeamCity Launcher builds: build, package, verify, deploy into a local copy of
-the files tree, publish to the live tree and a bucket. TeamCity still does the real releases.
+MultiMC's build and release automation, which replaced the TeamCity jobs: build, package,
+verify, deploy into a local copy of the files tree, publish to the live tree and a bucket;
+also translations, the Patreon credits, the website and meta.
+
+The toolchain and tool images it runs are built from the
+[Toolchains](https://github.com/MultiMC/Toolchains) repo (`containers/`), which also holds
+the raw captures of the old build machines (`snapshots/`). This repo has no large files.
 
 | File | What |
 |------|------|
@@ -62,7 +67,7 @@ deployment target, extra CMake arguments, the URLs compiled into the Launcher, t
 the deployer image, the files trees, the bucket) is listed with its default in
 `defaults.env`. Every script takes `--config FILE`, a file of the same `KEY=value` form that
 may only set settings from `defaults.env`; environment variables override both. Values may
-be quoted and may use `$TOOLCHAINS`, `$HOME` and settings defined before them.
+be quoted and may use `$HOPPER` (this directory), `$HOME` and settings defined before them.
 `common.load_settings` reads them; every setting is also passed into the build containers.
 
 Of the URLs only `UPDATER_BASE`, `NOTIFICATION_URL` and `TRANSLATIONS_BASE_URL` take
@@ -89,7 +94,7 @@ directory gets `build/` (the build tree; reused unless `CLEAN=1`), `install/` (t
 there.
 
 Every platform runs the same way (`common.build_command`): its image (settings `IMAGE_*`,
-built from `../containers/`), no network, as the calling user, source at `/src` read-only,
+built from the Toolchains repo's `containers/`), no network, as the calling user, source at `/src` read-only,
 output at `/out`, `build/` at `/build` read-only, all settings plus `PLATFORM` and
 `BUILD_NUMBER` in the environment, command `bash /build/<script>`. The images contain only
 toolchains.
@@ -258,7 +263,7 @@ Snapshots the tree (to undo it: `files-snapshots.py restore`), then changes it. 
 is published; the tree is locked while it runs.
 
 **Launcher builds:** does what TeamCity's deploy steps did on deth001, with the same
-repoman (`IMAGE_DEPLOYER`, `../containers/deployer`), as the calling user, without
+repoman (`IMAGE_DEPLOYER`, Toolchains: `containers/deployer`), as the calling user, without
 network: for each platform `repoman -c update push <platform> <branch> <build> <version>
 <bundle>/` (adds `update/<platform>/<branch>/<build>.json`, adds it to the channel's
 `index.json`, copies files the store doesn't have yet into `files/<md5>-<name>`) and
@@ -506,7 +511,7 @@ anonymous.
 
 multimc.org is a static Hugo site from `WEBSITE_BRANCH` of `WEBSITE_REPO` (MultiMC/Website).
 `website-build.py` builds it with `IMAGE_SITE`, TeamCity's image with Hugo 0.31.1 (not
-rebuildable; it is loaded from `../snapshots/2026-10-21-deth001`), into
+rebuildable; it is loaded from Toolchains: `snapshots/2026-10-21-deth001`), into
 `RELEASES_DIR/website-<time>-<commit>/site`. The output is the same as TeamCity's builds
 (verified against test.multimc.org), except the copyright year, which Hugo takes from the
 clock.
@@ -542,7 +547,7 @@ per missed time. A release whose deploy changed nothing (e.g. a
 Translations commit that only updates the template) is published as a no-op. It builds and publishes nothing itself, so every
 step can still be run and inspected by hand. Tagging, promotion, purging and the backend
 for a UI are meant to join it as further commands, working on the same files tree and
-plain state files (see `UPDATER.md` next to the Toolchains repo).
+plain state files (see `UPDATER.md` in the MultiMC project directory).
 
 - **State:** `HOPPER_STATE` (JSON, one list per stream) records every handled commit: time, build number,
   release directory, status (`published`, `failed`, `interrupted`, `adopted`), the step
@@ -568,7 +573,7 @@ plain state files (see `UPDATER.md` next to the Toolchains repo).
 ### On mikoshi (`systemd/hopper@.service`)
 
 hopper runs on mikoshi, which stays on, as the `hopper` user (home `/srv/hopper`, the
-checkout in `~/Toolchains`, its secrets in `~/.config/multimc-deploy/`, rootless podman,
+checkout in `~/hopper`, its secrets in `~/.config/multimc-deploy/`, rootless podman,
 not in the docker group). Its only access to deth001 is the key tied to `hopper-ssh`.
 systemd only keeps `hopper.py watch` running, as a user unit with one instance per
 settings file: `hopper@files2` (`files2.env`), at cutover `hopper@production`
@@ -576,7 +581,7 @@ settings file: `hopper@files2` (`files2.env`), at cutover `hopper@production`
 (the containers inherit it), stops hopper with SIGTERM alone so it can stop its own step,
 and restarts it if it crashes. Nothing else lives outside the code.
 
-    systemctl --user link ~/Toolchains/automation/systemd/hopper@.service
+    systemctl --user link ~/hopper/systemd/hopper@.service
     systemctl --user enable --now hopper@files2
     journalctl _SYSTEMD_USER_UNIT=hopper@files2.service -f    # as an admin
     ./hopper.py --config files2.env status
@@ -609,7 +614,7 @@ by TeamCity's old pipeline.
 
 ### Overview (`overview.py`, `hopper-top.py`)
 
-    ssh -t hopper@mikoshi Toolchains/automation/hopper-top.py
+    ssh -t hopper@mikoshi hopper/hopper-top.py
     ./overview.py [--json]
 
 `hopper-top.py` shows, live and like top, every setup (each settings file but
@@ -640,5 +645,5 @@ run. Changes to meta itself (a container with fixed tool versions, ...) come lat
 
 ## Requirements
 
-Docker with the toolchain images built or loaded (`../containers/`), git, python3 (3.12+),
+Docker with the toolchain images built or loaded (from the Toolchains repo), git, python3 (3.12+),
 rsync, outbound access to GitHub.

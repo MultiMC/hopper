@@ -7,7 +7,7 @@ For every setup (each settings file next to this script but defaults.env: produc
 files2), from its files: whether its hopper runs (the pid holding HOPPER_STATE's lock) and what it
 last saw (HOPPER_STATE.status), its service (hopper@<setup>), each job's last run, what's
 live (the published snapshot, the update channels, the website), and its runs, newest
-first. For the machine: whether a release build runs (the pid holding its lock), the Toolchains checkout's commit,
+first. For the machine: whether a release build runs (the pid holding its lock), the hopper checkout's commit,
 free space, and meta's service and timer.
 
 It only reads: run it any time, as the user hopper runs as. Without --json, a short text
@@ -35,7 +35,7 @@ def gather():
     return {
         "time": time.strftime(TIME),
         "host": socket.gethostname(),
-        "code": git_describe(common.TOOLCHAINS),
+        "code": git_describe(common.HOPPER),
         "release_build": common.lock_holder(common.RELEASE_LOCK),
         "disk": disk(common.STATE),
         "setups": [setup(path) for path in setup_files()],
@@ -44,7 +44,7 @@ def gather():
 
 
 def setup_files():
-    files = [p for p in common.AUTOMATION.glob("*.env") if p.name != common.DEFAULTS.name]
+    files = [p for p in common.HOPPER.glob("*.env") if p.name != common.DEFAULTS.name]
     return sorted(files, key=lambda p: (p.stem != "production", p.stem))
 
 

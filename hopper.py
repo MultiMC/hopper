@@ -198,7 +198,7 @@ class State:
 class Status:
     """HOPPER_STATE.status (JSON), what the running `hopper.py watch` saw, for the overview:
 
-        {"pid", "started", "config", "code" (the Toolchains commit it runs), "interval",
+        {"pid", "started", "config", "code" (the hopper commit it runs), "interval",
          "looked" (the end of its last look: a heartbeat, except while a release runs),
          "problem" (why the last look failed, or null),
          "jobs": {stream: {"head", "looked"}, scheduled job: {"latest", "next", "looked"}}}
@@ -208,7 +208,7 @@ class Status:
     def __init__(self, state, settings, config):
         self.path = Path(str(state.path) + ".status")
         self.data = {"pid": os.getpid(), "started": now(), "config": str(config) if config else None,
-                     "code": subprocess.run(["git", "-C", str(common.TOOLCHAINS), "describe", "--always", "--dirty"],
+                     "code": subprocess.run(["git", "-C", str(common.HOPPER), "describe", "--always", "--dirty"],
                                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout.strip(),
                      "interval": int(settings["WATCH_INTERVAL"]), "looked": None, "problem": None, "jobs": {}}
 
@@ -366,7 +366,7 @@ class Run:
         self.state.save()
         self.logf.write("\n=== %s %s: %s %s\n" % (record["start"], name, script, " ".join(args)))
         self.logf.flush()
-        process = subprocess.Popen([sys.executable, common.AUTOMATION / script, *self.config_args, *args],
+        process = subprocess.Popen([sys.executable, common.HOPPER / script, *self.config_args, *args],
                                    stdout=stdout, stderr=self.logf, text=True)
         try:
             output, _ = process.communicate()

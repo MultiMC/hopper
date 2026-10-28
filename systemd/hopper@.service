@@ -1,7 +1,7 @@
 # hopper as a service on mikoshi: a systemd user unit of the hopper user, one instance per
 # settings file, e.g. hopper@files2 runs `hopper.py --config files2.env watch`.
 #
-#   systemctl --user link ~/Toolchains/automation/systemd/hopper@.service
+#   systemctl --user link ~/hopper/systemd/hopper@.service
 #   systemctl --user enable --now hopper@files2
 #   journalctl _SYSTEMD_USER_UNIT=hopper@files2.service -f   (as an admin, see below)
 #
@@ -16,11 +16,11 @@
 
 [Unit]
 Description=hopper, the MultiMC release automation (%i.env)
-Documentation=file://%h/Toolchains/automation/README.md
+Documentation=file://%h/hopper/README.md
 
 [Service]
-WorkingDirectory=%h/Toolchains/automation
-ExecStart=%h/Toolchains/automation/hopper.py --config %i.env watch
+WorkingDirectory=%h/hopper
+ExecStart=%h/hopper/hopper.py --config %i.env watch
 # mikoshi runs the containers with rootless podman (docker there is root's, for other services)
 Environment=CONTAINER_ENGINE=podman
 Environment=PYTHONUNBUFFERED=1

@@ -155,7 +155,7 @@ def check_prerequisites(settings, platforms):
     for p in platforms:
         image = settings[p.image_setting]
         if not common.image_exists(settings, image):
-            common.die("toolchain image %s (%s) isn't there; build or load it (../containers/)" % (image, p.name))
+            common.die("toolchain image %s (%s) isn't there; build or load it (the Toolchains repo, containers/)" % (image, p.name))
         description = Path(settings["GATE_DESCRIPTIONS"]) / ("%s.toml" % p.name)
         if not description.is_file():
             common.die("the gate's description %s is missing" % description)
@@ -253,7 +253,7 @@ def gate(settings, platforms, src, build_root, out):
     for p in platforms:
         tree = build_root / p.name / "install" / p.bundle
         with open(out / ("compat-%s.txt" % p.name), "w") as report:
-            result = subprocess.run([sys.executable, common.AUTOMATION / "compat-check.py", "check", p.name, tree,
+            result = subprocess.run([sys.executable, common.HOPPER / "compat-check.py", "check", p.name, tree,
                                      descriptions / ("%s.toml" % p.name),
                                      "--json", out / ("compat-%s.json" % p.name)] + values, stdout=report)
         passed[p.name] = result.returncode == 0

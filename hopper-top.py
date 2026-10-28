@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hopper-top: the overview (overview.py) live in the terminal, like top; read-only.
 
-    ssh -t hopper@mikoshi Toolchains/automation/hopper-top.py
+    ssh -t hopper@mikoshi hopper/hopper-top.py
 
 SSH is the access control and the transport: whoever may log in as hopper may look.
 It refreshes every REFRESH seconds. Keys:
