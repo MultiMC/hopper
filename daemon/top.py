@@ -91,6 +91,11 @@ def age(text):
     return time.time() - time.mktime(time.strptime(text, overview.TIME)) if text else None
 
 
+def clamp(value, low, high):
+    """value, kept within low..high; low if high < low (an empty list)."""
+    return max(low, min(value, high))
+
+
 def size(n):
     for unit in ("B", "K", "M", "G", "T"):
         if n < 1024 or unit == "T":
@@ -110,39 +115,51 @@ class Top:
         except curses.error:
             pass
         window.timeout(250)
-        self.selected = None  # the selected run's log path
-        self.offset = 0
+        self.selected = 0  # the selected row in the list of runs, 0 is the newest
+        self.offset = 0  # the first row shown
         data, loaded = None, 0
         while True:
             if data is None or time.time() - loaded >= REFRESH:
                 data, loaded = overview.gather(), time.time()
             runs = [(s, r) for s in data["setups"] for r in s["runs"]]
             runs.sort(key=lambda item: item[1]["time"], reverse=True)
+            self.selected = clamp(self.selected, 0, len(runs) - 1)
             self.draw(data, runs)
             key = window.getch()
             if key in (ord("q"), ord("Q")):
                 return
             if key == ord("r"):
                 data = None
-            elif key in (curses.KEY_ENTER, 10, 13) and self.current(runs):
-                setup, run = self.current(runs)
+            elif key in (curses.KEY_ENTER, 10, 13) and runs:
+                setup, run = runs[self.selected]
                 LogView(self.screen, run.get("log"), "%s %s %s" % (setup["name"], run["job"], run["label"]),
                         follow=run["status"] == "running").run()
                 data = None
             elif key == ord("h"):
-                setup = self.current(runs)[0] if self.current(runs) else data["setups"][0]
+                if runs:
+                    setup = runs[self.selected][0]
+                else:
+                    setup = data["setups"][0]
                 LogView(self.screen, setup["log"], "%s hopper.log" % setup["name"], follow=True).run()
                 data = None
-            elif key in MOVES and runs:
-                index = next((i for i, (_, r) in enumerate(runs) if r.get("log") == self.selected), 0)
-                index = max(0, min(len(runs) - 1, MOVES[key](index, self.page)))
-                self.selected = runs[index][1].get("log")
+            else:
+                self.move(key, len(runs))
 
-    def current(self, runs):
-        for setup, run in runs:
-            if run.get("log") == self.selected:
-                return setup, run
-        return runs[0] if runs else None
+    def move(self, key, count):
+        """Move the selection for a navigation key; other keys do nothing."""
+        if key in (curses.KEY_UP, ord("k")):
+            self.selected -= 1
+        elif key in (curses.KEY_DOWN, ord("j")):
+            self.selected += 1
+        elif key == curses.KEY_PPAGE:
+            self.selected -= self.page
+        elif key == curses.KEY_NPAGE:
+            self.selected += self.page
+        elif key == curses.KEY_HOME:
+            self.selected = 0
+        elif key == curses.KEY_END:
+            self.selected = count - 1
+        self.selected = clamp(self.selected, 0, count - 1)
 
     def draw(self, data, runs):
         window, screen = self.screen.window, self.screen
@@ -163,12 +180,16 @@ class Top:
         screen.line(y, [("runs", curses.A_BOLD), ("  (Enter: log, h: hopper.log)", curses.A_DIM)])
         y += 1
         self.page = max(1, height - y - 1)
-        if runs and self.current(runs)[1].get("log") != self.selected:
-            self.selected = runs[0][1].get("log")
-        index = next((i for i, (_, r) in enumerate(runs) if r.get("log") == self.selected), 0)
-        self.offset = min(max(self.offset, index - self.page + 1), index)
+        # scroll just enough to keep the selected row on screen
+        if self.selected < self.offset:
+            self.offset = self.selected
+        if self.selected >= self.offset + self.page:
+            self.offset = self.selected - self.page + 1
         for i, (setup, run) in enumerate(runs[self.offset:self.offset + self.page]):
-            mark = curses.A_REVERSE if self.offset + i == index else 0
+            if self.offset + i == self.selected:
+                mark = curses.A_REVERSE
+            else:
+                mark = 0
             screen.line(y + i, self.run_pieces(setup, run), fill=mark)
         screen.line(height - 1, [(" up/down select  Enter log  h hopper.log  r refresh  q quit", curses.A_DIM)])
         window.refresh()
@@ -276,14 +297,6 @@ class Top:
         return [(" %-11s %-13s " % (setup["name"], run["job"]), 0)] + self.result_pieces(run)
 
 
-MOVES = {
-    curses.KEY_UP: lambda i, page: i - 1, ord("k"): lambda i, page: i - 1,
-    curses.KEY_DOWN: lambda i, page: i + 1, ord("j"): lambda i, page: i + 1,
-    curses.KEY_PPAGE: lambda i, page: i - page, curses.KEY_NPAGE: lambda i, page: i + page,
-    curses.KEY_HOME: lambda i, page: 0, curses.KEY_END: lambda i, page: 1 << 30,
-}
-
-
 class LogView:
     """A log file, read as it grows."""
 
@@ -294,6 +307,9 @@ class LogView:
         self.search, self.message = None, ""
 
     def load(self):
+        if self.path is None:
+            self.message = "this run has no log: adopted runs were never built, so nothing ran"
+            return
         try:
             with open(self.path, "rb") as f:
                 if os.fstat(f.fileno()).st_size < self.read_to:  # replaced or truncated
