@@ -34,12 +34,15 @@ def now():
     return timestamp(datetime.datetime.now())
 
 
+# RFC 3339, to the second (fromisoformat alone also takes "2026-10-28 12:14:09+0100" and others)
+RFC_3339 = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(Z|[+-]\d\d:\d\d)")
+
+
 def parse_time(text):
     """A time as hopper writes it, as a datetime with its zone."""
-    moment = datetime.datetime.fromisoformat(text)
-    if moment.tzinfo is None:
-        raise ValueError("%r has no offset" % text)
-    return moment
+    if not RFC_3339.fullmatch(text):
+        raise ValueError("%r isn't RFC 3339" % text)
+    return datetime.datetime.fromisoformat(text)
 
 
 # --- platforms ---------------------------------------------------------------------------

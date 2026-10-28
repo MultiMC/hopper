@@ -14,13 +14,13 @@ const ParseOptions = std.json.ParseOptions;
 pub const Parsed = std.json.Parsed;
 
 /// A file as a `T`, in its own arena; null if it doesn't exist. A file that doesn't parse as a
-/// `T` (a field it doesn't have, a value it can't be) stops the program, naming the file.
+/// `T` (a field it doesn't have, a value it can't be) is error.NotWhatHopperWrites.
 pub fn read(comptime T: type, io: std.Io, gpa: Allocator, path: []const u8) !?Parsed(T) {
     const text = try system.readFile(io, gpa, path) orelse return null;
     defer gpa.free(text);
     return std.json.parseFromSlice(T, gpa, text, .{ .allocate = .alloc_always }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => system.fail("{s}: not what hopper writes there ({s})", .{ path, @errorName(err) }),
+        else => return error.NotWhatHopperWrites,
     };
 }
 

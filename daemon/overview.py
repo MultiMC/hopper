@@ -7,7 +7,8 @@ For every setup (each settings file next to this script but defaults.env: produc
 files2), from its files: whether its hopper runs (the pid holding HOPPER_STATE's lock) and what it
 last saw (HOPPER_STATE.status), its service (hopper@<setup>), each job's last run, what's
 live (the published snapshot, the update channels, the website), and its runs, newest
-first. For the machine: whether a release build runs (the pid holding its lock), the hopper checkout's commit,
+first; a file of it that isn't what hopper writes there is its "error" instead, and the
+other setups still show. For the machine: whether a release build runs (the pid holding its lock), the hopper checkout's commit,
 free space, and meta's service and timer.
 
 It only reads: run it any time, as the user hopper runs as. Without --json, a short text
@@ -50,24 +51,45 @@ def setup_files():
 
 
 def setup(path):
+    """A setup's hopper and service, and what its files say. A file of it that isn't what hopper
+    writes there is its "error", in place of what its files say: the other setups still show."""
     settings = common.load_settings(path)
     state_path = Path(settings["HOPPER_STATE"])
-    entries = json.loads(state_path.read_text()) if state_path.is_file() else {}
-    status = read_json(Path(str(state_path) + ".status"))
-    runs = sorted(((name, e) for name, es in entries.items() if name in hopper.JOBS for e in es),
-                  key=lambda item: common.parse_time(item[1]["time"]), reverse=True)
-    return {
+    summary = {
         "name": path.stem,
         "config": str(path),
         "running": common.lock_holder(str(state_path) + ".lock"),
         "service": unit("hopper@%s.service" % path.stem),
-        "status": status,
+        "status": None,
         "log": str(state_path) + ".logs/hopper.log",
-        "jobs": [job_summary(settings, job, entries.get(job.name, []), (status or {}).get("jobs", {}).get(job.name))
-                 for job in hopper.JOBS.values()],
-        "live": live(settings),
-        "runs": [run_summary(name, e) for name, e in runs[:RUNS]],
+        "jobs": [],
+        "live": None,
+        "runs": [],
+        "error": None,
     }
+    try:
+        summary.update(from_files(settings, state_path))
+    except Unreadable as error:
+        summary["error"] = "%s: not what hopper writes there" % error
+    return summary
+
+
+class Unreadable(Exception):
+    """A file that isn't what hopper writes there (its path)."""
+
+
+def from_files(settings, state_path):
+    entries = read_json(state_path) or {}
+    status = read_json(Path(str(state_path) + ".status"))
+    try:
+        runs = sorted(((name, e) for name, es in entries.items() if name in hopper.JOBS for e in es),
+                      key=lambda item: common.parse_time(item[1]["time"]), reverse=True)
+        jobs = [job_summary(settings, job, entries.get(job.name, []), (status or {}).get("jobs", {}).get(job.name))
+                for job in hopper.JOBS.values()]
+        runs = [run_summary(name, e) for name, e in runs[:RUNS]]
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise Unreadable(state_path)
+    return {"status": status, "jobs": jobs, "live": live(settings), "runs": runs}
 
 
 def job_summary(settings, job, entries, seen):
@@ -103,7 +125,13 @@ def live(settings):
     version in each update channel ({channel: {version id: [platforms]}}), the website."""
     snapshot = common.published_marker(settings)
     name = snapshot.read_text().strip() if snapshot.is_file() else None
-    info = read_json(common.snapshots_dir(settings) / (name + ".json")) if name else None
+    info_path = common.snapshots_dir(settings) / (name + ".json") if name else None
+    info = read_json(info_path) if name else None
+    try:
+        if info and "created" in info:
+            common.parse_time(info["created"])
+    except (ValueError, TypeError):
+        raise Unreadable(info_path)
     channels = {}
     for index in sorted(Path(settings["FILES_ROOT"], "update").glob("*/*/index.json")):
         try:
@@ -150,10 +178,15 @@ def git_describe(path):
 
 
 def read_json(path):
+    """A file's JSON; None if it doesn't exist."""
     try:
-        return json.loads(Path(path).read_text())
-    except (OSError, ValueError):
+        text = Path(path).read_text()
+    except FileNotFoundError:
         return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        raise Unreadable(path)
 
 
 def seconds_between(start, end):
@@ -181,6 +214,8 @@ def print_text(data):
         print("\n%s: hopper %s, service %s/%s, %s restarts" % (
             s["name"], "running" if s["running"] else "not running", service.get("ActiveState"),
             service.get("UnitFileState"), service.get("NRestarts")))
+        if s["error"]:
+            print("  can't read its files: %s" % s["error"])
         for job in s["jobs"]:
             last = job["last"]
             print("  %-13s %-4s %-26s %s" % (job["name"], "" if job["enabled"] else "off", job["source"].split()[-1] if job["kind"] == "stream" else job["source"],

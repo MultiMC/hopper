@@ -225,6 +225,9 @@ class Top:
             pieces.append(("off (service %s, %s)" % (service.get("ActiveState"), service.get("UnitFileState")), curses.A_DIM))
         screen.line(y, pieces)
         y += 1
+        if setup["error"]:
+            screen.line(y, [("  can't read its files: %s" % setup["error"], color(RED, True))])
+            return y + 1
         for job in setup["jobs"]:
             screen.line(y, self.job_pieces(job))
             y += 1

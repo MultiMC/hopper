@@ -5,8 +5,9 @@
 // For every setup (each settings file in config/ but defaults.env: production, files2), from
 // its files: whether its hopper runs (the pid holding HOPPER_STATE's lock) and what it last saw
 // (HOPPER_STATE.status), its service (hopper@<setup>), each job's last run, what's live (the
-// published snapshot, the update channels, the website), and its runs, newest first. For the
-// machine: whether a release build runs (the pid holding its lock), the hopper checkout's
+// published snapshot, the update channels, the website), and its runs, newest first; a file
+// of it that isn't what hopper writes there is its "error" instead, and the other setups still
+// show. For the machine: whether a release build runs (the pid holding its lock), the hopper checkout's
 // commit, free space, and meta's service and timer.
 //
 // It only reads: run it any time, as the user hopper runs as. Without --json, a short text
@@ -64,11 +65,13 @@ const Setup = struct {
     config: []const u8,
     running: ?i64,
     service: std.json.Value,
-    status: ?hopper.state.Status,
+    status: ?hopper.state.Status = null,
     log: []const u8,
-    jobs: []const JobSummary,
-    live: Live,
-    runs: []const RunSummary,
+    jobs: []const JobSummary = &.{},
+    live: ?Live = null,
+    runs: []const RunSummary = &.{},
+    /// A file of the setup that isn't what hopper writes there, in place of what its files say
+    @"error": ?[]const u8 = null,
 };
 
 const JobSummary = struct {
@@ -199,15 +202,43 @@ fn productionFirst(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.lessThan(u8, a, b);
 }
 
+/// A setup's hopper and service, and what its files say. A file of it that isn't what hopper
+/// writes there is its error, in place of what its files say: the other setups still show.
 fn setup(context: Context, config_file: []const u8, settings: Settings) !Setup {
     const io = context.io;
     const arena = context.arena;
     const name = std.fs.path.stem(config_file);
     const state_path = settings.get("HOPPER_STATE");
 
-    const state = (try hopper.state.State.read(io, arena, state_path)).value;
+    const service_name = try std.fmt.allocPrint(arena, "hopper@{s}.service", .{name});
+    var result: Setup = .{
+        .name = name,
+        .config = config_file,
+        .running = try system.lockHolder(io, arena, try concat(arena, state_path, ".lock")),
+        .service = try system.unit(io, arena, service_name, &unit_properties),
+        .log = try concat(arena, state_path, ".logs/hopper.log"),
+    };
+    var unreadable: []const u8 = undefined;
+    fromFiles(context, settings, &result, &unreadable) catch |err| switch (err) {
+        error.NotWhatHopperWrites => {
+            result.@"error" = try std.fmt.allocPrint(arena, "{s}: not what hopper writes there", .{unreadable});
+        },
+        else => return err,
+    };
+    return result;
+}
+
+/// What a setup's files say, into `result`: all of it, or (when a file isn't what hopper writes
+/// there, named in `unreadable`) none.
+fn fromFiles(context: Context, settings: Settings, result: *Setup, unreadable: *[]const u8) !void {
+    const io = context.io;
+    const arena = context.arena;
+    const state_path = settings.get("HOPPER_STATE");
+
+    const state = (hopper.state.State.read(io, arena, state_path) catch |err| return noted(err, state_path, unreadable)).value;
+    const status_path = try hopper.state.Status.path(arena, state_path);
     var status: ?hopper.state.Status = null;
-    if (try hopper.state.Status.read(io, arena, try hopper.state.Status.path(arena, state_path))) |parsed| {
+    if (hopper.state.Status.read(io, arena, status_path) catch |err| return noted(err, status_path, unreadable)) |parsed| {
         status = parsed.value;
     }
 
@@ -228,20 +259,19 @@ fn setup(context: Context, config_file: []const u8, settings: Settings) !Setup {
         }
     }
     std.mem.sort(RunSummary, runs.items, {}, newerFirst);
-    const newest = runs.items[0..@min(runs.items.len, max_runs)];
 
-    const service_name = try std.fmt.allocPrint(arena, "hopper@{s}.service", .{name});
-    return .{
-        .name = name,
-        .config = config_file,
-        .running = try system.lockHolder(io, arena, try concat(arena, state_path, ".lock")),
-        .service = try system.unit(io, arena, service_name, &unit_properties),
-        .status = status,
-        .log = try concat(arena, state_path, ".logs/hopper.log"),
-        .jobs = job_summaries.items,
-        .live = try live(context, settings),
-        .runs = newest,
-    };
+    const setup_live = try live(context, settings, unreadable);
+    result.status = status;
+    result.jobs = job_summaries.items;
+    result.live = setup_live;
+    result.runs = runs.items[0..@min(runs.items.len, max_runs)];
+}
+
+/// `err`, reading `path`: if it's a file that isn't what hopper writes there, `path` goes in
+/// `unreadable`.
+fn noted(err: anyerror, path: []const u8, unreadable: *[]const u8) anyerror {
+    if (err == error.NotWhatHopperWrites) unreadable.* = path;
+    return err;
 }
 
 fn newerFirst(_: void, a: RunSummary, b: RunSummary) bool {
@@ -321,7 +351,7 @@ fn runSummary(context: Context, job_name: []const u8, entry: Entry) !RunSummary 
 
 /// What a setup has published: its files tree's last published snapshot, the newest version in
 /// each update channel, the website.
-fn live(context: Context, settings: Settings) !Live {
+fn live(context: Context, settings: Settings, unreadable: *[]const u8) !Live {
     const io = context.io;
     const arena = context.arena;
     const files_root = settings.get("FILES_ROOT");
@@ -331,8 +361,9 @@ fn live(context: Context, settings: Settings) !Live {
         const snapshot = std.mem.trim(u8, marker, " \n");
         published = .{ .snapshot = snapshot };
         const info_path = try std.fmt.allocPrint(arena, "{s}.snapshots/{s}.json", .{ files_root, snapshot });
-        if (try hopper.state.SnapshotInfo.read(io, arena, info_path)) |parsed| {
-            const info = parsed.value;
+        const parsed = hopper.state.SnapshotInfo.read(io, arena, info_path) catch |err| return noted(err, info_path, unreadable);
+        if (parsed) |p| {
+            const info = p.value;
             published.?.created = info.created;
             published.?.kind = info.kind;
             published.?.about = info.about;
@@ -439,6 +470,7 @@ fn printText(arena: std.mem.Allocator, out: *std.Io.Writer, overview: Overview) 
             try unitText(arena, s.service, "UnitFileState"),
             try unitText(arena, s.service, "NRestarts"),
         });
+        if (s.@"error") |problem| try out.print("  can't read its files: {s}\n", .{problem});
         for (s.jobs) |job| {
             var source = job.source;
             if (std.mem.eql(u8, job.kind, "stream")) {
