@@ -157,7 +157,7 @@ pub fn gather(init: std.process.Init, context: Context) !Overview {
         try setups.append(arena, try setup(context, config_file, settings));
     }
 
-    const release_lock = try std.fs.path.join(arena, &.{ context.paths.state, "release-build.lock" });
+    const release_lock = try context.paths.releaseLock(arena);
     return .{
         .time = context.now,
         .host = try system.hostname(arena),

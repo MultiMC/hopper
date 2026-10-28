@@ -8,6 +8,8 @@ pub const settings = @import("settings.zig");
 pub const state = @import("state.zig");
 pub const jobs = @import("jobs.zig");
 pub const time = @import("time.zig");
+pub const cron = @import("cron.zig");
+pub const releases = @import("releases.zig");
 pub const system = @import("system.zig");
 
 pub const Settings = settings.Settings;
@@ -41,6 +43,12 @@ pub const Paths = struct {
         const state_dir = try std.fs.path.join(arena, &.{ state_home, "hopper" });
 
         return .{ .hopper = hopper, .config = config, .defaults = defaults, .state = state_dir };
+    }
+
+    /// One release build at a time: they share the Launcher mirror and the build counter, and
+    /// each one uses every CPU anyway (common.RELEASE_LOCK).
+    pub fn releaseLock(paths: Paths, arena: std.mem.Allocator) ![]const u8 {
+        return std.fs.path.join(arena, &.{ paths.state, "release-build.lock" });
     }
 };
 

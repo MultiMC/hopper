@@ -1,5 +1,5 @@
-// What hopper asks of this machine (Linux only): who holds a lock, free space, systemd's
-// units, the checkout's commit.
+// What hopper asks of this machine (Linux only): locks and who holds them, free space,
+// systemd's units, the checkout's commit, and its log lines.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -62,6 +62,76 @@ fn holdsOpen(io: std.Io, arena: std.mem.Allocator, pid: i64, real_path: []const 
         if (std.mem.eql(u8, target_buffer[0..length], real_path)) return .yes;
     }
     return .no;
+}
+
+/// Whether someone holds the lock on `path` right now (for skipping, not for safety): takes it
+/// for a moment, as common.is_locked does.
+pub fn isLocked(io: std.Io, path: []const u8) !bool {
+    const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
+    defer file.close(io);
+    if (!try file.tryLock(io, .exclusive)) return true;
+    file.unlock(io);
+    return false;
+}
+
+/// Hold an exclusive lock on `path` (a lock file) until the file is closed, or the program
+/// ends however it ends; if someone else holds it, stop with the message `busy`. The same lock
+/// (flock) as common.locked, so the Python and Zig programs keep each other out.
+pub fn lock(io: std.Io, path: []const u8, busy: []const u8) !std.Io.File {
+    const file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
+    errdefer file.close(io);
+    if (!try file.tryLock(io, .exclusive)) fail("error: {s} (locked: {s})", .{ busy, path });
+    return file;
+}
+
+/// `path` opened for adding to its end (made if it isn't there, with its directory): a log.
+pub fn openAppend(io: std.Io, path: []const u8) !std.Io.File {
+    if (std.fs.path.dirname(path)) |dir| try std.Io.Dir.cwd().createDirPath(io, dir);
+    const fd = try std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true, .CLOEXEC = true }, 0o644);
+    return .{ .handle = fd, .flags = .{ .nonblocking = false } };
+}
+
+/// A log line, as common.logger writes them: "[12:14:09 releases] message", on stderr (and in
+/// the file of logAlsoTo).
+pub fn log(io: std.Io, comptime tool: []const u8, comptime format: []const u8, args: anytype) void {
+    const now = Time.now(io).local();
+    emit(io, .logger, "[{d:0>2}:{d:0>2}:{d:0>2} " ++ tool ++ "] " ++ format, .{ now.hour, now.minute, now.second } ++ args);
+}
+
+/// What stops a program (common.die's message), or what it did instead of what it would have
+/// done: "error: message", or the message as it is
+pub fn logLine(io: std.Io, comptime format: []const u8, args: anytype) void {
+    emit(io, .other, format, args);
+}
+
+/// A file every log line also goes to, from now on (null: none): a long-running program's
+/// own log, as common.log_also_to keeps it. Each line there starts with the date, and the time
+/// too where it doesn't have it already.
+pub fn logAlsoTo(file: ?std.Io.File) void {
+    also_to = file;
+}
+
+var also_to: ?std.Io.File = null;
+
+fn emit(io: std.Io, comptime kind: enum { logger, other }, comptime format: []const u8, args: anytype) void {
+    var buffer: [8192]u8 = undefined;
+    const line = std.fmt.bufPrint(&buffer, format ++ "\n", args) catch blk: {
+        buffer[buffer.len - 4 ..].* = "...\n".*;
+        break :blk buffer[0..];
+    };
+    std.debug.print("{s}", .{line});
+    const file = also_to orelse return;
+    const now = Time.now(io).local();
+    var stamp_buffer: [32]u8 = undefined;
+    const stamp = switch (kind) {
+        .logger => std.fmt.bufPrint(&stamp_buffer, "{d}-{d:0>2}-{d:0>2} ", .{ now.year, now.month, now.day }),
+        .other => std.fmt.bufPrint(&stamp_buffer, "{d}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}:{d:0>2} ", .{ now.year, now.month, now.day, now.hour, now.minute, now.second }),
+    } catch unreachable;
+    file.writeStreamingAll(io, stamp) catch {};
+    file.writeStreamingAll(io, line) catch {};
 }
 
 pub const DiskUsage = struct {

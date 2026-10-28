@@ -5,6 +5,8 @@
 //     zig build test                the tests
 //     zig build run -- --json       build and run the overview
 //     zig-out/bin/top               the overview live in the terminal
+//     zig-out/bin/releases list     the releases (daemon/releases.zig)
+//     zig-out/bin/hopper status     hopper itself (daemon/hopper.zig)
 
 const std = @import("std");
 
@@ -44,6 +46,28 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.installArtifact(top);
+
+    const releases = b.addExecutable(.{
+        .name = "releases",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("daemon/releases.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "hopper", .module = hopper }},
+        }),
+    });
+    b.installArtifact(releases);
+
+    const daemon = b.addExecutable(.{
+        .name = "hopper",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("daemon/hopper.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "hopper", .module = hopper }},
+        }),
+    });
+    b.installArtifact(daemon);
 
     const run = b.addRunArtifact(overview);
     run.step.dependOn(b.getInstallStep());

@@ -26,7 +26,7 @@ pub const Time = struct {
     /// What the clock here shows at `time`
     pub fn local(time: Time) Local {
         const offset = zone.offsetAt(time.seconds);
-        const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = @intCast(time.seconds + offset) };
+        const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = @intCast(time.wall()) };
         const year_day = epoch_seconds.getEpochDay().calculateYearDay();
         const month_day = year_day.calculateMonthDay();
         const day_seconds = epoch_seconds.getDaySeconds();
@@ -39,6 +39,41 @@ pub const Time = struct {
             .second = day_seconds.getSecondsIntoMinute(),
             .offset = offset,
         };
+    }
+
+    /// What the clock here shows at `time`, as seconds since 1970-01-01 00:00 as if it were
+    /// UTC: "wall seconds", for counting in days and minutes of the clock (cron.zig).
+    pub fn wall(time: Time) i64 {
+        return time.seconds + zone.offsetAt(time.seconds);
+    }
+
+    /// The time the clock here shows as `wall` seconds, as Python gives it for a datetime without
+    /// a zone (astimezone(), fold 0), so both turn a clock time into the same moment: in the hour
+    /// the clocks go back, the first of the two; in the hour they skip, the time the old offset
+    /// gives (02:30 becomes 03:30 of the new one). CPython's _mktime, step by step.
+    pub fn fromWall(wall_seconds: i64) Time {
+        const t = wall_seconds;
+        const a = wallAt(t) - t;
+        const r1 = t - a;
+        const t1 = wallAt(r1);
+        var b: i64 = undefined;
+        if (t1 == t) {
+            // One answer; an earlier one, a day before at most, if the offset was different
+            const earlier = r1 - std.time.s_per_day;
+            b = wallAt(earlier) - earlier;
+            if (a == b) return .{ .seconds = r1 };
+        } else {
+            b = t1 - r1;
+        }
+        const r2 = t - b;
+        if (wallAt(r2) == t) return .{ .seconds = r2 };
+        if (t1 == t) return .{ .seconds = r1 };
+        // Neither offset gives this clock time: it's in the hour the clocks skip
+        return .{ .seconds = @max(r1, r2) };
+    }
+
+    fn wallAt(seconds: i64) i64 {
+        return (Time{ .seconds = seconds }).wall();
     }
 
     /// An RFC 3339 time, "2026-10-28T12:14:09+01:00" or "2026-10-28T11:14:09Z".
@@ -174,7 +209,7 @@ pub const Zone = struct {
 
 /// Days since 1970-01-01 of a date in the proleptic Gregorian calendar (Howard Hinnant's
 /// days_from_civil: years start in March, so the leap day is a year's last).
-fn daysFromCivil(year: i64, month: i64, day: i64) i64 {
+pub fn daysFromCivil(year: i64, month: i64, day: i64) i64 {
     var y = year;
     if (month <= 2) y -= 1;
     const era = @divFloor(y, 400);

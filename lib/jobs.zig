@@ -3,10 +3,16 @@
 
 const std = @import("std");
 const Settings = @import("settings.zig").Settings;
+const cron = @import("cron.zig");
+const Time = @import("time.zig").Time;
 
 pub const Job = struct {
     name: []const u8,
     kind: Kind,
+    /// Makes a release (the last line of its output is the release's directory)
+    build_script: []const u8,
+    /// Takes the release instead of files/deploy.py and files/publish.py
+    publish_script: ?[]const u8 = null,
 
     pub const Kind = union(enum) {
         stream: Stream,
@@ -25,6 +31,11 @@ pub const Job = struct {
         enabled_setting: []const u8,
     };
 
+    /// A scheduled job's schedule, or why it isn't one
+    pub fn schedule(job: Job, settings: Settings) error{BadSchedule}!cron.Schedule {
+        return cron.Schedule.parse(settings.get(job.kind.scheduled.schedule_setting));
+    }
+
     pub fn enabled(job: Job, settings: Settings) bool {
         switch (job.kind) {
             .stream => |stream| return settings.isSet(stream.repo_setting),
@@ -35,10 +46,27 @@ pub const Job = struct {
 };
 
 pub const all = [_]Job{
-    .{ .name = "launcher", .kind = .{ .stream = .{ .repo_setting = "LAUNCHER_REPO", .branch_setting = "LAUNCHER_BRANCH" } } },
-    .{ .name = "translations", .kind = .{ .stream = .{ .repo_setting = "TRANSLATIONS_REPO", .branch_setting = "TRANSLATIONS_BRANCH" } } },
-    .{ .name = "website", .kind = .{ .stream = .{ .repo_setting = "WEBSITE_REPO", .branch_setting = "WEBSITE_BRANCH" } } },
-    .{ .name = "patrons", .kind = .{ .scheduled = .{ .schedule_setting = "PATRONS_SCHEDULE", .enabled_setting = "PATRONS_CONFIG" } } },
+    .{
+        .name = "launcher",
+        .kind = .{ .stream = .{ .repo_setting = "LAUNCHER_REPO", .branch_setting = "LAUNCHER_BRANCH" } },
+        .build_script = "launcher/release-build.py",
+    },
+    .{
+        .name = "translations",
+        .kind = .{ .stream = .{ .repo_setting = "TRANSLATIONS_REPO", .branch_setting = "TRANSLATIONS_BRANCH" } },
+        .build_script = "translations/build.py",
+    },
+    .{
+        .name = "website",
+        .kind = .{ .stream = .{ .repo_setting = "WEBSITE_REPO", .branch_setting = "WEBSITE_BRANCH" } },
+        .build_script = "website/build.py",
+        .publish_script = "website/publish.py",
+    },
+    .{
+        .name = "patrons",
+        .kind = .{ .scheduled = .{ .schedule_setting = "PATRONS_SCHEDULE", .enabled_setting = "PATRONS_CONFIG" } },
+        .build_script = "patrons/update.py",
+    },
 };
 
 pub fn find(name: []const u8) ?Job {

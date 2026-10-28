@@ -24,8 +24,9 @@ pub const Settings = struct {
     }
 };
 
-/// The settings of a setup: defaults.env, then `config_file`, then the environment.
-pub fn load(init: std.process.Init, paths: hopper.Paths, config_file: []const u8) !Settings {
+/// The settings of a setup: defaults.env, then `config_file` (if there's one), then the
+/// environment.
+pub fn load(init: std.process.Init, paths: hopper.Paths, config_file: ?[]const u8) !Settings {
     const arena = init.arena.allocator();
 
     var base: Map = .empty;
@@ -36,22 +37,23 @@ pub fn load(init: std.process.Init, paths: hopper.Paths, config_file: []const u8
     const defaults_text = try system.readFile(init.io, arena, paths.defaults) orelse
         system.fail("{s} doesn't exist", .{paths.defaults});
     const defaults = try parse(arena, paths.defaults, defaults_text, base);
-
-    // A setup's file can use the defaults too
-    var known = try base.clone(arena);
-    for (defaults.keys(), defaults.values()) |key, value| {
-        try known.put(arena, key, value);
-    }
-    const config_text = try system.readFile(init.io, arena, config_file) orelse
-        system.fail("config file not found: {s}", .{config_file});
-    const overrides = try parse(arena, config_file, config_text, known);
-
     var values = try defaults.clone(arena);
-    for (overrides.keys(), overrides.values()) |key, value| {
-        if (!defaults.contains(key)) {
-            system.fail("{s}: unknown setting {s} (all settings are in defaults.env)", .{ config_file, key });
+
+    if (config_file) |file| {
+        // A setup's file can use the defaults too
+        var known = try base.clone(arena);
+        for (defaults.keys(), defaults.values()) |key, value| {
+            try known.put(arena, key, value);
         }
-        try values.put(arena, key, value);
+        const config_text = try system.readFile(init.io, arena, file) orelse
+            system.fail("config file not found: {s}", .{file});
+        const overrides = try parse(arena, file, config_text, known);
+        for (overrides.keys(), overrides.values()) |key, value| {
+            if (!defaults.contains(key)) {
+                system.fail("{s}: unknown setting {s} (all settings are in defaults.env)", .{ file, key });
+            }
+            try values.put(arena, key, value);
+        }
     }
     for (defaults.keys()) |key| {
         if (init.environ_map.get(key)) |value| {

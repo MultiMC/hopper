@@ -78,6 +78,16 @@ pub const State = struct {
         try json.write(io, path, state);
     }
 
+    /// Add a run to a job's runs; returns it, to be updated as the run goes on (a pointer into
+    /// the job's list: good until the next run is added to it).
+    pub fn add(state: *State, arena: Allocator, job: []const u8, entry: Entry) !*Entry {
+        const runs_of_job = try state.jobs.map.getOrPut(arena, job);
+        if (!runs_of_job.found_existing) runs_of_job.value_ptr.* = .{};
+        const list = &runs_of_job.value_ptr.list;
+        try list.append(arena, entry);
+        return &list.items[list.items.len - 1];
+    }
+
     /// A job's runs, oldest first.
     pub fn runs(state: State, job: []const u8) []Entry {
         const entries = state.jobs.map.get(job) orelse return &.{};
