@@ -383,8 +383,7 @@ directory into a subvolume: reflink copy, compare, swap; the old directory stays
 
 Every snapshot has its metadata next to it, `<snapshot>.json`: when, what kind (deploy,
 published, pulled, before-pull, before-restore, init, manual) and what about (the release,
-the number of files published); `list` shows them. Snapshots from before metadata get their
-kind from their names.
+the number of files published); `list` shows them.
 
 **Cleanup** (after every publish, or `files/snapshots.py cleanup [--dry-run]`), like
 snapper's number cleanup on this workstation (which snap-pac runs around every pacman
@@ -555,7 +554,9 @@ plain state files (see `UPDATER.md` in the MultiMC project directory).
   prints it. Each run's output goes to `HOPPER_STATE.logs/`. `watch` also writes
   `HOPPER_STATE.status` after every look (each stream's head, each scheduled job's next
   time, the code it runs, why a look failed) and keeps its own log,
-  `HOPPER_STATE.logs/hopper.log`, with a traceback if it crashes.
+  `HOPPER_STATE.logs/hopper.log`, with a traceback if it crashes. Times in these files (and
+  in snapshot metadata) are RFC 3339 in local time with its offset,
+  `2026-10-28T12:14:09+01:00`.
 - **Fails closed:** a failed step stops the chain; a failed or interrupted commit is not
   retried automatically (`release <stream> <commit>` retries it by hand). The next commit is handled
   normally.

@@ -9,3 +9,7 @@
 
 # Python bytecode
 __pycache__/
+
+# Zig build output
+zig-out/
+.zig-cache/

@@ -30,6 +30,7 @@ from pathlib import Path
 # The shared code is in lib/, next to this directory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
+import common
 import overview
 
 REFRESH = 2.0
@@ -87,8 +88,8 @@ def color(number, bold=False):
 
 
 def age(text):
-    """Seconds since a "YYYY-MM-DD HH:MM:SS" time."""
-    return time.time() - time.mktime(time.strptime(text, overview.TIME)) if text else None
+    """Seconds since a time as hopper writes them."""
+    return time.time() - common.parse_time(text).timestamp() if text else None
 
 
 def clamp(value, low, high):
@@ -122,7 +123,7 @@ class Top:
             if data is None or time.time() - loaded >= REFRESH:
                 data, loaded = overview.gather(), time.time()
             runs = [(s, r) for s in data["setups"] for r in s["runs"]]
-            runs.sort(key=lambda item: item[1]["time"], reverse=True)
+            runs.sort(key=lambda item: common.parse_time(item[1]["time"]), reverse=True)
             self.selected = clamp(self.selected, 0, len(runs) - 1)
             self.draw(data, runs)
             key = window.getch()
@@ -167,7 +168,7 @@ class Top:
         height, width = screen.size()
         disk = data["disk"]
         build = data["release_build"]
-        screen.line(0, [(" hopper-top  %s  %s" % (data["host"], data["time"][11:]), curses.A_BOLD),
+        screen.line(0, [(" hopper-top  %s  %s" % (data["host"], data["time"][11:19]), curses.A_BOLD),
                         ("   code %s" % data["code"] if data["code"] else "", 0),
                         ("   free %s of %s" % (size(disk["free"]), size(disk["total"])), 0),
                         ("   release build running (pid %d)" % build if build else "", 0)], fill=curses.A_REVERSE)

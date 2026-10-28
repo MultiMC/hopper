@@ -15,13 +15,13 @@ summary; daemon/top.py shows the same live. The JSON is what other views read.
 """
 
 import argparse
+import datetime
 import json
 import os
 import shutil
 import socket
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 # The shared code is in lib/, next to this directory
@@ -32,12 +32,9 @@ import hopper
 
 RUNS = 100  # the newest runs listed per setup
 
-TIME = "%Y-%m-%d %H:%M:%S"
-
-
 def gather():
     return {
-        "time": time.strftime(TIME),
+        "time": common.now(),
         "host": socket.gethostname(),
         "code": git_describe(common.HOPPER),
         "release_build": common.lock_holder(common.RELEASE_LOCK),
@@ -58,7 +55,7 @@ def setup(path):
     entries = json.loads(state_path.read_text()) if state_path.is_file() else {}
     status = read_json(Path(str(state_path) + ".status"))
     runs = sorted(((name, e) for name, es in entries.items() if name in hopper.JOBS for e in es),
-                  key=lambda item: item[1]["time"], reverse=True)
+                  key=lambda item: common.parse_time(item[1]["time"]), reverse=True)
     return {
         "name": path.stem,
         "config": str(path),
@@ -91,14 +88,11 @@ def job_summary(settings, job, entries, seen):
 
 
 def run_summary(job, entry):
-    """A state entry, with its job, a label, and how long it took (so far). Entries from
-    before hopper recorded step times end when their log was last written."""
+    """A state entry, with its job, a label, and how long it took (so far)."""
     steps = entry.get("steps", [])
     end = entry.get("finished") or (steps[-1].get("end") if steps else None)
     if entry["status"] == "running":
-        end = time.strftime(TIME)
-    elif not end and entry.get("log") and os.path.isfile(entry["log"]):
-        end = time.strftime(TIME, time.localtime(os.path.getmtime(entry["log"])))
+        end = common.now()
     return {**entry, "job": job, "label": hopper.label(entry),
             "release": os.path.basename(entry["release"]) if entry.get("release") else None,
             "seconds": seconds_between(entry["time"], end) if end else None}
@@ -128,7 +122,7 @@ def live(settings):
 
 
 def unit(name, *properties):
-    """A systemd user unit's state, times as local "YYYY-MM-DD HH:MM:SS" (null: never)."""
+    """A systemd user unit's state, times as hopper writes them (null: never)."""
     properties = properties or ("ActiveState", "SubState", "Result", "UnitFileState", "ActiveEnterTimestamp",
                                 "InactiveEnterTimestamp", "ExecMainStartTimestamp", "ExecMainExitTimestamp",
                                 "ExecMainStatus", "NRestarts", "MainPID")
@@ -138,7 +132,7 @@ def unit(name, *properties):
     for line in result.stdout.splitlines():
         key, _, value = line.partition("=")
         if value.startswith("@") and value[1:].isdigit():
-            value = time.strftime(TIME, time.localtime(int(value[1:])))
+            value = common.timestamp(datetime.datetime.fromtimestamp(int(value[1:])))
         elif value.isdigit():
             value = int(value)
         values[key] = value if value != "" else None
@@ -163,7 +157,7 @@ def read_json(path):
 
 
 def seconds_between(start, end):
-    return int(time.mktime(time.strptime(end, TIME)) - time.mktime(time.strptime(start, TIME)))
+    return int((common.parse_time(end) - common.parse_time(start)).total_seconds())
 
 
 def duration(seconds):
@@ -175,8 +169,8 @@ def duration(seconds):
 
 
 def short_time(text):
-    """ "2026-10-27 12:00:06" -> "10-27 12:00" """
-    return text[5:16] if text else ""
+    """ "2026-10-27T12:00:06+01:00" -> "10-27 12:00" """
+    return text[5:16].replace("T", " ") if text else ""
 
 
 def print_text(data):

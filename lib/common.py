@@ -1,5 +1,6 @@
 """Shared parts of the build automation: settings, platforms, logging, locking, commands."""
 
+import datetime
 import fcntl
 import json
 import os
@@ -19,6 +20,26 @@ HOPPER = Path(__file__).resolve().parent.parent
 STATE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "hopper"
 CONFIG = HOPPER / "config"
 DEFAULTS = CONFIG / "defaults.env"
+
+
+# --- time ----------------------------------------------------------------------------------
+
+def timestamp(moment):
+    """A datetime (local time if it has no zone) as hopper writes times: RFC 3339, in local
+    time with its offset ("2026-10-28T12:14:09+01:00"), so it says which moment it means."""
+    return moment.astimezone().isoformat(timespec="seconds")
+
+
+def now():
+    return timestamp(datetime.datetime.now())
+
+
+def parse_time(text):
+    """A time as hopper writes it, as a datetime with its zone."""
+    moment = datetime.datetime.fromisoformat(text)
+    if moment.tzinfo is None:
+        raise ValueError("%r has no offset" % text)
+    return moment
 
 
 # --- platforms ---------------------------------------------------------------------------
@@ -428,7 +449,7 @@ def snapshot_files(settings, label, kind="manual", about=""):
     directory.mkdir(exist_ok=True)
     snapshot = directory / ("%s-%s" % (time.strftime("%Y%m%d-%H%M%S"), label))
     run("btrfs", "subvolume", "snapshot", "-r", root, snapshot, stdout=subprocess.DEVNULL)
-    info = {"created": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "kind": kind, "about": about}
+    info = {"created": now(), "kind": kind, "about": about}
     Path(str(snapshot) + ".json").write_text(json.dumps(info, indent=2) + "\n")
     return snapshot
 
@@ -438,16 +459,8 @@ IMPORTANT_KINDS = ("published", "pulled")
 
 
 def snapshot_info(snapshot):
-    """A snapshot's metadata. Snapshots from before metadata existed: read from the name."""
-    meta = Path(str(snapshot) + ".json")
-    if meta.is_file():
-        info = json.loads(meta.read_text())
-    else:
-        label = snapshot.name[16:]
-        kind = ("deploy" if label.startswith(("before-deploy", "before-translations", "before-patrons"))
-                else label if label in ("published", "pulled", "before-pull", "before-restore", "init")
-                else "manual")
-        info = {"kind": kind, "about": ""}
+    """A snapshot's metadata, from <snapshot>.json."""
+    info = json.loads(Path(str(snapshot) + ".json").read_text())
     info["time"] = time.mktime(time.strptime(snapshot.name[:15], "%Y%m%d-%H%M%S"))
     return info
 

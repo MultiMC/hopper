@@ -95,14 +95,14 @@ class Scheduled:
         return bool(settings[self.enabled_setting] and settings[self.schedule_setting])
 
     def latest(self, settings, now):
-        """The most recent scheduled time at or before `now` (a datetime), as "YYYY-MM-DD HH:MM"."""
+        """The most recent scheduled time at or before `now` (a datetime), as hopper writes times."""
         moment = cron.Schedule(settings[self.schedule_setting]).latest(now)
-        return moment.strftime("%Y-%m-%d %H:%M") if moment else None
+        return common.timestamp(moment) if moment else None
 
     def next(self, settings, now):
         """The first scheduled time after `now`, the same way."""
         moment = cron.Schedule(settings[self.schedule_setting]).next(now)
-        return moment.strftime("%Y-%m-%d %H:%M") if moment else None
+        return common.timestamp(moment) if moment else None
 
 
 SCHEDULED = {j.name: j for j in [
@@ -142,7 +142,8 @@ def main():
             job = SCHEDULED[args.job]
             if not job.enabled(settings):
                 common.die("%s isn't enabled with these settings (%s)" % (args.job, job.enabled_setting))
-            run_pipeline(config, state, job, {"scheduled": time.strftime("%Y-%m-%d %H:%M"), "by_hand": True})
+            this_minute = datetime.datetime.now().replace(second=0, microsecond=0)
+            run_pipeline(config, state, job, {"scheduled": common.timestamp(this_minute), "by_hand": True})
         elif args.once:
             look(settings, config, state)
         else:
@@ -152,15 +153,13 @@ def main():
 
 class State:
     """HOPPER_STATE: {stream or scheduled job: [entry, ...]}, each oldest first. An entry is written when its
-    run starts and updated after every step, so a crash leaves it as "running". (A state
-    from before translations, {"commits": [...]}, is read as the launcher stream's.)"""
+    run starts and updated after every step, so a crash leaves it as "running". Times are
+    RFC 3339 (common.timestamp)."""
 
     def __init__(self, path):
         self.path = path
         self.logs = Path(str(path) + ".logs")
         data = json.loads(path.read_text()) if path.exists() else {}
-        if "commits" in data:
-            data = {"launcher": data["commits"]}
         self.streams = {name: data.get(name, []) for name in JOBS}
 
     def entries(self):
@@ -191,7 +190,7 @@ class State:
         os.replace(new, self.path)
 
     def print(self):
-        for name, entry in sorted(self.entries(), key=lambda item: item[1]["time"], reverse=True):
+        for name, entry in sorted(self.entries(), key=lambda item: common.parse_time(item[1]["time"]), reverse=True):
             print("%s  %-12s %s  %-6s %-22s %s" % (
                 entry["time"], name, label(entry), entry.get("build") or "",
                 entry["status"] + (" (%s)" % entry["step"] if entry.get("step") else ""),
@@ -225,13 +224,13 @@ class Status:
         os.replace(new, self.path)
 
 
-def now():
-    return time.strftime("%Y-%m-%d %H:%M:%S")
+now = common.now
 
 
 def label(entry):
-    """What an entry is about: a commit (streams) or a scheduled time (scheduled jobs)."""
-    return entry["commit"][:10] if "commit" in entry else entry["scheduled"].replace(" ", "T")
+    """What an entry is about: a commit (streams) or a scheduled time, "2026-10-28T12:00"
+    (scheduled jobs)."""
+    return entry["commit"][:10] if "commit" in entry else entry["scheduled"][:16]
 
 
 def head(settings, stream):
