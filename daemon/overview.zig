@@ -45,7 +45,7 @@ const usage =
 
 // --- what it shows ------------------------------------------------------------------------
 
-const Overview = struct {
+pub const Overview = struct {
     time: Time,
     host: []const u8,
     code: ?[]const u8,
@@ -55,12 +55,12 @@ const Overview = struct {
     meta: Meta,
 };
 
-const Meta = struct {
+pub const Meta = struct {
     service: std.json.Value,
     timer: std.json.Value,
 };
 
-const Setup = struct {
+pub const Setup = struct {
     name: []const u8,
     config: []const u8,
     running: ?i64,
@@ -74,7 +74,7 @@ const Setup = struct {
     @"error": ?[]const u8 = null,
 };
 
-const JobSummary = struct {
+pub const JobSummary = struct {
     name: []const u8,
     kind: []const u8,
     enabled: bool,
@@ -89,7 +89,7 @@ const JobSummary = struct {
 
 /// A state entry, with its job, a label, and how long it took (so far).
 /// FIXME: does this really need the custom jsonStringify?
-const RunSummary = struct {
+pub const RunSummary = struct {
     entry: Entry,
     job: []const u8,
     label: []const u8,
@@ -121,7 +121,7 @@ const RunSummary = struct {
     }
 };
 
-const Live = struct {
+pub const Live = struct {
     /// The files tree's last published snapshot
     published: ?Published,
     /// The newest version in each update channel: {channel: {version id: [platforms]}}
@@ -130,7 +130,7 @@ const Live = struct {
     website: std.json.Value,
 };
 
-const Published = struct {
+pub const Published = struct {
     snapshot: []const u8,
     created: ?Time = null,
     kind: ?[]const u8 = null,
@@ -140,14 +140,14 @@ const Published = struct {
 // --- gathering it -------------------------------------------------------------------------
 
 /// What every part needs: where things are, the clock, memory (freed when the program ends).
-const Context = struct {
+pub const Context = struct {
     io: std.Io,
     arena: std.mem.Allocator,
     paths: hopper.Paths,
     now: Time,
 };
 
-fn gather(init: std.process.Init, context: Context) !Overview {
+pub fn gather(init: std.process.Init, context: Context) !Overview {
     const io = context.io;
     const arena = context.arena;
 
@@ -510,7 +510,7 @@ fn unitText(arena: std.mem.Allocator, unit: std.json.Value, name: []const u8) ![
     }
 }
 
-fn printDuration(out: *std.Io.Writer, seconds: ?i64) !void {
+pub fn printDuration(out: *std.Io.Writer, seconds: ?i64) !void {
     // Unsigned: a signed number padded with zeros gets a sign ("+14")
     const s: u64 = @intCast(@max(seconds orelse return, 0));
     if (s < 3600) {

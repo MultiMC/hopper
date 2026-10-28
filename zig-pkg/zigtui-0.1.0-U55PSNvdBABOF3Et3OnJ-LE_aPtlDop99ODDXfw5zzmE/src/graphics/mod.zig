@@ -1,0 +1,274 @@
+const std = @import("std");
+const render_mod = @import("../render/mod.zig");
+const style = @import("../style/mod.zig");
+const Allocator = std.mem.Allocator;
+
+pub const kitty = @import("kitty.zig");
+pub const bmp = @import("bmp.zig");
+
+// Re-export commonly used types
+pub const KittyGraphics = kitty.KittyGraphics;
+pub const Image = kitty.Image;
+pub const Placement = kitty.Placement;
+pub const Format = kitty.Format;
+pub const Capability = kitty.Capability;
+
+pub const GraphicsMode = enum {
+    kitty,
+    sixel,
+    block,
+    ascii,
+};
+
+pub const Graphics = struct {
+    allocator: Allocator,
+    environ: *const std.process.Environ.Map,
+    mode: GraphicsMode,
+    kitty_gfx: ?KittyGraphics,
+    detected: bool = false,
+
+    pub fn init(allocator: Allocator, environ: *const std.process.Environ.Map) Graphics {
+        return .{
+            .allocator = allocator,
+            .environ = environ,
+            .mode = .block, // Safe default
+            .kitty_gfx = null,
+        };
+    }
+
+    pub fn deinit(self: *Graphics) void {
+        if (self.kitty_gfx) |*kg| {
+            kg.deinit();
+        }
+    }
+
+    pub fn detect(self: *Graphics) GraphicsMode {
+        // Check environment variables first for quick detection
+        if (self.detectFromEnv()) |mode| {
+            self.mode = mode;
+            self.detected = true;
+            if (mode == .kitty) {
+                self.kitty_gfx = KittyGraphics.init(self.allocator);
+            }
+            return mode;
+        }
+
+        // Default to block characters (safe fallback)
+        self.mode = .block;
+        self.detected = true;
+        return self.mode;
+    }
+
+    fn detectFromEnv(self: *Graphics) ?GraphicsMode {
+        // Check TERM for kitty
+        if (self.environ.get("TERM")) |term| {
+            if (std.mem.indexOf(u8, term, "kitty") != null) {
+                return .kitty;
+            }
+        }
+
+        // Check TERM_PROGRAM
+        if (self.environ.get("TERM_PROGRAM")) |term_program| {
+            if (std.mem.eql(u8, term_program, "kitty")) {
+                return .kitty;
+            }
+            // WezTerm also supports Kitty graphics
+            if (std.mem.eql(u8, term_program, "WezTerm")) {
+                return .kitty;
+            }
+        }
+
+        // Check KITTY_WINDOW_ID (definitive kitty indicator)
+        if (self.environ.contains("KITTY_WINDOW_ID")) {
+            return .kitty;
+        }
+
+        // Check for Konsole (supports Sixel)
+        if (self.environ.contains("KONSOLE_VERSION")) {
+            return .sixel;
+        }
+
+        return null;
+    }
+
+    pub fn setMode(self: *Graphics, mode: GraphicsMode) void {
+        self.mode = mode;
+        self.detected = true;
+
+        if (mode == .kitty and self.kitty_gfx == null) {
+            self.kitty_gfx = KittyGraphics.init(self.allocator);
+        }
+    }
+
+    pub fn supportsImages(self: Graphics) bool {
+        return self.mode == .kitty or self.mode == .sixel;
+    }
+
+    pub fn drawImage(
+        self: *Graphics,
+        image: Image,
+        placement: Placement,
+    ) !?[]const u8 {
+        switch (self.mode) {
+            .kitty => {
+                if (self.kitty_gfx) |*kg| {
+                    return try kg.drawImage(image, placement);
+                }
+                return null;
+            },
+            .sixel => {
+                // TODO: Implement Sixel support
+                return null;
+            },
+            .block, .ascii => {
+                // Fallback rendering is done via buffer
+                return null;
+            },
+        }
+    }
+
+    pub fn renderImageToBuffer(
+        self: *Graphics,
+        image: Image,
+        buffer: *render_mod.Buffer,
+        area: render_mod.Rect,
+    ) void {
+        _ = self;
+
+        if (image.format == .png) {
+            // Can't render PNG without decoding
+            renderPlaceholder(buffer, area, "[PNG Image]");
+            return;
+        }
+
+        const img_width = image.width;
+        const img_height = image.height;
+        const stride = image.stride;
+
+        // Each cell represents 2 vertical pixels using half-block characters
+        const cells_x = area.width;
+        const cells_y = area.height;
+
+        // Scale factors
+        const scale_x: f32 = @as(f32, @floatFromInt(img_width)) / @as(f32, @floatFromInt(cells_x));
+        const scale_y: f32 = @as(f32, @floatFromInt(img_height)) / @as(f32, @floatFromInt(cells_y * 2));
+
+        var cy: u16 = 0;
+        while (cy < cells_y and cy + area.y < buffer.height) : (cy += 1) {
+            var cx: u16 = 0;
+            while (cx < cells_x and cx + area.x < buffer.width) : (cx += 1) {
+                // Sample top pixel (upper half of cell)
+                const top_img_x: usize = @intFromFloat(@as(f32, @floatFromInt(cx)) * scale_x);
+                const top_img_y: usize = @intFromFloat(@as(f32, @floatFromInt(cy * 2)) * scale_y);
+
+                // Sample bottom pixel (lower half of cell)
+                const bot_img_y: usize = @intFromFloat(@as(f32, @floatFromInt(cy * 2 + 1)) * scale_y);
+
+                // Get colors from image
+                const top_color = samplePixel(image.data, img_width, stride, top_img_x, top_img_y);
+                const bot_color = samplePixel(image.data, img_width, stride, top_img_x, bot_img_y);
+
+                // Use upper half block character (▀) with fg=top, bg=bottom
+                if (buffer.get(area.x + cx, area.y + cy)) |cell| {
+                    cell.char = '▀'; // Upper half block
+                    cell.fg = top_color;
+                    cell.bg = bot_color;
+                }
+            }
+        }
+    }
+
+    pub fn renderPlaceholder(buffer: *render_mod.Buffer, area: render_mod.Rect, text: []const u8) void {
+        if (area.height == 0 or area.width == 0) return;
+
+        const text_len = @min(text.len, area.width);
+        const start_x = area.x + (area.width - @as(u16, @intCast(text_len))) / 2;
+        const start_y = area.y + area.height / 2;
+
+        buffer.setString(start_x, start_y, text[0..text_len], .{ .fg = .gray });
+    }
+
+    fn samplePixel(data: []const u8, width: u32, stride: u32, x: usize, y: usize) style.Color {
+        const idx = (y * @as(usize, width) + x) * @as(usize, stride);
+        if (idx + 2 >= data.len) {
+            return .black;
+        }
+
+        return .{ .rgb = .{
+            .r = data[idx],
+            .g = data[idx + 1],
+            .b = data[idx + 2],
+        } };
+    }
+
+    pub fn getQuerySequence(self: *Graphics) !?[]const u8 {
+        if (self.kitty_gfx) |*kg| {
+            return try kg.querySupport();
+        }
+        // Initialize Kitty graphics just for query
+        var kg = KittyGraphics.init(self.allocator);
+        defer kg.deinit();
+        return try kg.querySupport();
+    }
+
+    pub fn clearImages(self: *Graphics) !?[]const u8 {
+        if (self.kitty_gfx) |*kg| {
+            return try kg.deleteImages(.all, null);
+        }
+        return null;
+    }
+};
+
+pub const ImageWidget = @import("../widgets/image.zig").ImageWidget;
+
+test "graphics mode detection from env" {
+    const allocator = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(allocator);
+    defer environ.deinit();
+    var gfx = Graphics.init(allocator, &environ);
+    defer gfx.deinit();
+
+    // Default mode should be block (safe fallback)
+    try std.testing.expectEqual(GraphicsMode.block, gfx.mode);
+}
+
+test "force graphics mode" {
+    const allocator = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(allocator);
+    defer environ.deinit();
+    var gfx = Graphics.init(allocator, &environ);
+    defer gfx.deinit();
+
+    gfx.setMode(.kitty);
+    try std.testing.expectEqual(GraphicsMode.kitty, gfx.mode);
+    try std.testing.expect(gfx.supportsImages());
+}
+
+test "render image to buffer fallback" {
+    const allocator = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(allocator);
+    defer environ.deinit();
+    var gfx = Graphics.init(allocator, &environ);
+    defer gfx.deinit();
+
+    // Create a small test image (2x2 RGBA)
+    const img_data = [_]u8{
+        255, 0, 0, 255, // Red
+        0, 255, 0, 255, // Green
+        0, 0, 255, 255, // Blue
+        255, 255, 0, 255, // Yellow
+    };
+
+    const image = Image.fromRGBA(&img_data, 2, 2);
+
+    var buffer = try render_mod.Buffer.init(allocator, 10, 10);
+    defer buffer.deinit();
+
+    const area = render_mod.Rect{ .x = 0, .y = 0, .width = 2, .height = 1 };
+    gfx.renderImageToBuffer(image, &buffer, area);
+
+    // Check that something was rendered
+    if (buffer.get(0, 0)) |cell| {
+        try std.testing.expectEqual(@as(u21, '▀'), cell.char);
+    }
+}

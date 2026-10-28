@@ -3,6 +3,12 @@
 .{
     .name = .hopper,
     .version = "0.0.1",
+    .dependencies = .{
+        .zigtui = .{
+            .url = "git+https://github.com/adxdits/zigtui.git#2a4654bba21c3aba59b856f71cdafc259fa15bbd",
+            .hash = "zigtui-0.1.0-U55PSNvdBABOF3Et3OnJ-LE_aPtlDop99ODDXfw5zzmE",
+        },
+    },
     .minimum_zig_version = "0.17.0",
     .paths = .{
         "build.zig",
