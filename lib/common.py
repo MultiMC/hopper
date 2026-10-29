@@ -254,13 +254,24 @@ def user():
 @contextmanager
 def locked(path, busy):
     """Hold an exclusive lock on `path` (a lock file) for the duration of a `with` block.
-    If someone else holds it, stop with the message `busy`. The lock goes away with the
-    process, however it ends."""
+    If someone else holds it, stop with the message `busy`; with HOPPER_LOCK_WAIT set in
+    the environment (seconds), wait for it that long first (Laminar's jobs do: nothing
+    retries them). The lock goes away with the process, however it ends."""
+    wait = float(os.environ.get("HOPPER_LOCK_WAIT") or 0)
+    deadline = time.monotonic() + wait
     with open(path, "w") as f:
-        try:
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            die("%s (locked: %s)" % (busy, path))
+        waiting = False
+        while True:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    die("%s (locked: %s)" % (busy, path))
+                if not waiting:
+                    emit("%s; waiting up to %d s for %s" % (busy, wait, path))
+                    waiting = True
+                time.sleep(5)
         yield
 
 

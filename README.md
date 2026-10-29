@@ -543,7 +543,8 @@ hopper moves releases through their stages. For now it is the trigger, for three
 scheduled jobs, with cron-style schedules (`daemon/cron.py`): `patrons` (`patrons/update.py` on
 `PATRONS_SCHEDULE`, only where `PATRONS_CONFIG` is set). A scheduled job runs once for the
 most recent scheduled time it hasn't handled: after the machine was off, once, not once
-per missed time. A release whose deploy changed nothing (e.g. a
+per missed time. A stream or scheduled job named in `HOPPER_HANDED_OFF` is left to its
+Laminar job instead (see Laminar below), and shows as off. A release whose deploy changed nothing (e.g. a
 Translations commit that only updates the template) is published as a no-op. It builds and publishes nothing itself, so every
 step can still be run and inspected by hand. Tagging, promotion, purging and the backend
 for a UI are meant to join it as further commands, working on the same files tree and
@@ -648,6 +649,7 @@ watches the directory it found when it started. Its jobs so far:
 - `website`: builds the website (Hugo, in its image) and archives the site; build only,
   hopper still publishes the website.
 - `meta`: the meta pipeline (below).
+- `translations-files2`: the translations release to files2 (below).
 
 ### Its binaries (`laminar/build.sh`)
 
@@ -694,6 +696,29 @@ libraries are mikoshi's system packages (as on deth001). Only `config/config_loc
 differs from deth001's: `update.sh` deploys to `root@deth001.multimc.org:/home/http/meta/v1/`
 through `hopper-ssh`, and `DEPLOY_FORGE_MAVEN=false`. Changes to meta itself (a container
 with fixed tool versions, ...) come later.
+
+### Translations to files2 (Laminar's job `translations-files2`)
+
+Since 2026-10-30, files2's translations are Laminar's: `config/files2.env` hands the
+`translations` stream over (`HOPPER_HANDED_OFF=translations`, so `hopper@files2` leaves it
+alone and shows it as off), and the trigger starts `translations-files2` for each new commit
+of the Translations repo's `master`. The job (`cfg/jobs/translations-files2.run`) runs the
+same scripts hopper ran, in the same order, with the settings its name names
+(`config/files2.env`): `translations/build.py`, `files/deploy.py`, `files/publish.py`, then
+`daemon/releases.py cleanup` (a failure of that is only logged). The release stays in
+`RELEASES_DIR`, under its cleanup; the archive gets its path, `manifest.json` and
+`release.log`. `laminarc queue translations-files2 COMMIT=<sha>` releases a given commit.
+
+hopper's scripts stop at once when a lock they need is held (another release build, the
+files tree). Nothing retries a Laminar job, so the job sets `HOPPER_LOCK_WAIT=3600`: they
+wait up to an hour for the lock instead, and say so in the log. Its context, `files2`
+(`EXECUTORS=1`), is meant for every job that writes files2's tree.
+
+Tested 2026-10-30 in a throwaway laminard with a scratch copy of files2's tree (live tree:
+a local directory; the bucket and the purge skipped, the only change to the script): the
+first run waited for the release lock held by hand, then built `9a051ca4`; a release of
+`1e543c81` published 2 files to the stand-in live tree, and the head (`d6b1b66a`) put it
+back, identical to files2's.
 
 ## Requirements
 

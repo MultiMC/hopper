@@ -101,6 +101,7 @@ def job_summary(settings, job, entries, seen):
         "name": job.name,
         "kind": "stream" if stream else "scheduled",
         "enabled": job.enabled(settings),
+        "off": job.off(settings),
         "source": ("%s %s" % (settings[job.repo_setting], settings[job.branch_setting]) if stream
                    else settings[job.schedule_setting]),
         "seen": seen,

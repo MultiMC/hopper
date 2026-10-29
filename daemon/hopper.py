@@ -64,6 +64,12 @@ import cron
 log = common.logger("hopper")
 
 
+def handed_off(settings, job):
+    """"handed to Laminar" if HOPPER_HANDED_OFF names the job (Laminar's job runs it,
+    laminar/cfg/jobs), else None."""
+    return "handed to Laminar by HOPPER_HANDED_OFF" if job in settings["HOPPER_HANDED_OFF"].split() else None
+
+
 @dataclass(frozen=True)
 class Stream:
     name: str
@@ -72,8 +78,12 @@ class Stream:
     build_script: str
     publish_script: str = None  # takes the release instead of files/deploy.py and files/publish.py
 
+    def off(self, settings):
+        """Why hopper doesn't run this stream with these settings, or None."""
+        return handed_off(settings, self.name) or (None if settings[self.repo_setting] else "%s is empty" % self.repo_setting)
+
     def enabled(self, settings):
-        return bool(settings[self.repo_setting])
+        return self.off(settings) is None
 
 
 STREAMS = {s.name: s for s in [
@@ -91,8 +101,13 @@ class Scheduled:
     build_script: str
     publish_script = None  # always files/deploy.py and files/publish.py
 
+    def off(self, settings):
+        """Why hopper doesn't run this job with these settings, or None."""
+        empty = [setting for setting in (self.enabled_setting, self.schedule_setting) if not settings[setting]]
+        return handed_off(settings, self.name) or ("%s is empty" % empty[0] if empty else None)
+
     def enabled(self, settings):
-        return bool(settings[self.enabled_setting] and settings[self.schedule_setting])
+        return self.off(settings) is None
 
     def latest(self, settings, now):
         """The most recent scheduled time at or before `now` (a datetime), as hopper writes times."""
@@ -136,12 +151,12 @@ def main():
         state.interrupt_stale()
         if args.command == "release" and args.job in STREAMS:
             if not STREAMS[args.job].enabled(settings):
-                common.die("%s isn't enabled with these settings (%s is empty)" % (args.job, STREAMS[args.job].repo_setting))
+                common.die("%s isn't enabled with these settings (%s)" % (args.job, STREAMS[args.job].off(settings)))
             run_pipeline(config, state, STREAMS[args.job], {"commit": args.commit})
         elif args.command == "release":
             job = SCHEDULED[args.job]
             if not job.enabled(settings):
-                common.die("%s isn't enabled with these settings (%s)" % (args.job, job.enabled_setting))
+                common.die("%s isn't enabled with these settings (%s)" % (args.job, job.off(settings)))
             this_minute = datetime.datetime.now().replace(second=0, microsecond=0)
             run_pipeline(config, state, job, {"scheduled": common.timestamp(this_minute), "by_hand": True})
         elif args.once:
@@ -246,10 +261,10 @@ def watch(settings, config, state):
     interval = int(settings["WATCH_INTERVAL"])
     for stream in STREAMS.values():
         log("watching %s: %s" % (stream.name, "%s %s" % (settings[stream.repo_setting], settings[stream.branch_setting])
-                                 if stream.enabled(settings) else "off (%s is empty)" % stream.repo_setting))
+                                 if stream.enabled(settings) else "off (%s)" % stream.off(settings)))
     for job in SCHEDULED.values():
         log("scheduled %s: %s" % (job.name, settings[job.schedule_setting] if job.enabled(settings)
-                                  else "off (%s is empty)" % job.enabled_setting))
+                                  else "off (%s)" % job.off(settings)))
     log("every %d s" % interval)
     status = Status(state, settings, config)
     status.save()

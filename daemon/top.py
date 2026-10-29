@@ -238,7 +238,8 @@ class Top:
     def job_pieces(self, job):
         source = job["source"].split()[-1] if job["kind"] == "stream" else job["source"]
         if not job["enabled"]:
-            return [("  %-13s %-12s off" % (job["name"], source), curses.A_DIM)]
+            return [("  %-13s %-12s off%s" % (job["name"], source, ", handed to Laminar" if "Laminar" in (job.get("off") or "") else ""),
+                     curses.A_DIM)]
         pieces = [("  %-13s %-12s " % (job["name"], source), 0)]
         last = job["last"]
         if last:
