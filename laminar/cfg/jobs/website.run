@@ -1,0 +1,43 @@
+#!/bin/bash -eu
+# Build multimc.org: the Website repo's Hugo site at $COMMIT (default: the head of the
+# branch), in the Hugo 0.31.1 image, without network. The site, the commit and the list of
+# files go to $ARCHIVE. Build only: nothing is published (Laminar experiment; hopper still
+# publishes the website).
+#
+#     laminarc queue website [COMMIT=<sha>]
+
+REPO=https://github.com/MultiMC/Website.git
+BRANCH=master
+IMAGE=ghcr.io/multimc/toolchains/site:latest
+
+# A mirror in the job's workspace, kept between runs
+mirror=$WORKSPACE/website.git
+if [[ ! -d $mirror ]]; then
+    git clone -q --mirror "$REPO" "$mirror"
+fi
+git -C "$mirror" fetch -q --prune origin
+commit=$(git -C "$mirror" rev-parse --verify "${COMMIT:-refs/heads/$BRANCH}^{commit}")
+if ! git -C "$mirror" merge-base --is-ancestor "$commit" "refs/heads/$BRANCH"; then
+    echo "$commit is not on $BRANCH" >&2
+    exit 1
+fi
+echo "building $BRANCH at $commit"
+
+# The run directory ($PWD) is thrown away after the run
+git clone -q --no-hardlinks -b "$BRANCH" "$mirror" src
+git -C src reset -q --hard "$commit"
+git -C src submodule -q update --init --recursive
+
+mkdir site
+podman run --rm --userns=keep-id --network none \
+    -v "$PWD/src:/src:ro" -v "$PWD/site:/out" -w /src \
+    "$IMAGE" hugo -s site/ -d /out
+if [[ ! -f site/index.html ]]; then
+    echo "hugo made no index.html" >&2
+    exit 1
+fi
+
+cp -a site "$ARCHIVE/"
+echo "$commit" > "$ARCHIVE/commit"
+(cd site && find . -type f | sed 's|^\./||' | sort) > "$ARCHIVE/files"
+echo "$(wc -l < "$ARCHIVE/files") files from $commit"

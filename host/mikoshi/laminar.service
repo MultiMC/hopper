@@ -1,10 +1,13 @@
-# Laminar (https://laminar.ohwg.net), an experiment: a small CI server running jobs from
-# ~/laminar/cfg/jobs, as the hopper user. Everything is in ~/laminar: laminard and laminarc
-# (built from source) in bin/, and LAMINAR_HOME, Laminar's own files (cfg/, archive/, run/,
-# laminar.sqlite). Its RPC is a unix socket there; its web UI listens on localhost only, for
-# Caddy, which serves it as https://hopper.peterix.cz (internal: this network and the VPN; no
-# login, so it shows every job and log to anyone who can reach it):
+# Laminar (https://laminar.ohwg.net), an experiment: a small CI server running jobs, as the
+# hopper user. ~/laminar is LAMINAR_HOME, Laminar's own files (archive/, run/,
+# laminar.sqlite), and bin/ with laminard and laminarc (built by laminar/build.sh). Its
+# config, the jobs, is this repo's laminar/cfg, linked as ~/laminar/cfg. Its RPC is a unix
+# socket there; its web UI listens on localhost only, for Caddy, which serves it as
+# https://hopper.peterix.cz (internal: this network and the VPN; no login, so it shows every
+# job and log to anyone who can reach it):
 #
+#   ~/hopper/laminar/build.sh                         # the binaries, into ~/laminar/bin
+#   ln -s ~/hopper/laminar/cfg ~/laminar/cfg
 #   systemctl --user link ~/hopper/host/mikoshi/laminar.service
 #   systemctl --user enable --now laminar.service
 #   laminarc show-jobs          (LAMINAR_HOST from ~/.bash_profile)

@@ -1,0 +1,39 @@
+# laminard and laminarc, built so that a system update can't break them: everything they use
+# is linked in (Cap'n Proto, built here from its release; SQLite, zlib, libstdc++, libgcc)
+# but glibc. Built on Debian 13, they need glibc 2.38 or newer (mikoshi has 2.44). Every
+# input is pinned: the base image by digest, Cap'n Proto by checksum, Laminar by commit
+# (its own CMake downloads its web UI's scripts, checked by MD5). Built by laminar/build.sh.
+
+FROM docker.io/library/debian:13@sha256:e2914ec98e08b24b4cee3cefcb9f90dfb5519f8d215a2ccf0c9a49b10b6e43de AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl git g++ cmake make pkg-config \
+        libsqlite3-dev zlib1g-dev rapidjson-dev libboost-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Cap'n Proto: the version Laminar was tested with on mikoshi (the system's was 1.5.0);
+# static libraries only, without OpenSSL and zlib (Laminar uses neither from it)
+ARG CAPNP_VERSION=1.5.0
+ARG CAPNP_SHA256=77dbc13ca82d9c87ddb4581dd49559d45b63096433d3dadea08b7f31b360a5ba
+RUN curl -fsSLO https://capnproto.org/capnproto-c++-${CAPNP_VERSION}.tar.gz \
+    && echo "${CAPNP_SHA256}  capnproto-c++-${CAPNP_VERSION}.tar.gz" | sha256sum -c \
+    && tar xf capnproto-c++-${CAPNP_VERSION}.tar.gz \
+    && cmake -S capnproto-c++-${CAPNP_VERSION} -B capnp-build -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF -DWITH_OPENSSL=OFF -DWITH_ZLIB=OFF \
+    && cmake --build capnp-build -j"$(nproc)" \
+    && cmake --install capnp-build
+
+# Laminar 1.4-3-g9d928cca (2026-10-28)
+ARG LAMINAR_COMMIT=9d928ccad8c89c6f22892d167ea3842173ef62d1
+RUN git clone -q https://github.com/ohwgiles/laminar.git \
+    && git -C laminar checkout -q ${LAMINAR_COMMIT} \
+    && cmake -S laminar -B laminar-build -DCMAKE_BUILD_TYPE=Release \
+        -DLAMINAR_VERSION="$(git -C laminar describe --tags --abbrev=8)" \
+        -DSQLite3_LIBRARY=/usr/lib/x86_64-linux-gnu/libsqlite3.a \
+        -DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.a \
+        -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
+    && cmake --build laminar-build -j"$(nproc)" \
+    && strip laminar-build/laminard laminar-build/laminarc
+
+FROM scratch
+COPY --from=build /laminar-build/laminard /laminar-build/laminarc /

@@ -22,6 +22,7 @@ directory down and is run from the top of the checkout, e.g.
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
 | `files/` | The files tree (files.multimc.org), shared by the Launcher, translations and Patreon releases: `deploy.py` deploys a release into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
+| `laminar/` | Laminar (the experiment): `cfg/`, its config (`jobs/<job>.run` and `.conf`, `contexts/`), linked as `~/laminar/cfg`; `build.sh` and `Containerfile` build its binaries, linked against nothing but glibc |
 | `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree |
 | `config/` | The settings: `defaults.env` (every setting, with its default), `production.env` (none: the defaults as they are; there so every setup has a name), `files2.env` (the files2 test system) |
 | `host/` | What is installed on other machines, by machine. `mikoshi/`: the systemd user units, `hopper@.service` (keeps hopper running, one instance per settings file), `laminar.service` (Laminar, the experiment) and `trigger.service` (`daemon/trigger.py`, which starts Laminar's jobs). `deth001/`: `hopper-ssh`, the only things hopper's SSH key may do on the files host |
@@ -635,16 +636,29 @@ will be requests the running hopper picks up, not commands the view runs.
 ## Laminar (`host/mikoshi/laminar.service`, an experiment)
 
 [Laminar](https://laminar.ohwg.net), a small CI server, runs jobs as the `hopper` user from
-`~/laminar`: `laminard` and `laminarc` (built from source) in `bin/`, and Laminar's own files
-(`LAMINAR_HOME`: the job definitions in `cfg/`, its own git checkout; `archive/`, `run/`,
-`laminar.sqlite`). Each job is `cfg/jobs/<job>.run`, any executable; Laminar keeps every
+`~/laminar` (`LAMINAR_HOME`): Laminar's own files (`archive/`, `run/`, `laminar.sqlite`), and
+`bin/` with `laminard` and `laminarc`. Its config is this repo's `laminar/cfg`, linked as
+`~/laminar/cfg`. Each job is `laminar/cfg/jobs/<job>.run`, any executable; Laminar keeps every
 run, its whole log and its result, and shows them at https://hopper.peterix.cz (Caddy in
 front of `127.0.0.1:8091`; internal: this network and the VPN, no login). `laminarc`
-reaches it over `~/laminar/rpc.sock`. Its jobs so far:
+reaches it over `~/laminar/rpc.sock`. It picks up new and changed jobs (a `git pull`) by
+itself; only replacing the `~/laminar/cfg` link needs a restart of `laminar.service`, as it
+watches the directory it found when it started. Its jobs so far:
 
 - `website`: builds the website (Hugo, in its image) and archives the site; build only,
   hopper still publishes the website.
 - `meta`: the meta pipeline (below).
+
+### Its binaries (`laminar/build.sh`)
+
+    laminar/build.sh [OUT]       # default ~/laminar/bin; then: systemctl --user restart laminar
+
+builds `laminard` and `laminarc` in a container (`laminar/Containerfile`, podman) so that no
+system update can break them: Cap'n Proto (built there from its release, static), SQLite,
+zlib, libstdc++ and libgcc are linked in, and the only library left to load is glibc (built
+on Debian 13, they need 2.38 or newer; mikoshi has 2.44). Every input is pinned: the base image by digest, Cap'n
+Proto by checksum, Laminar by commit (1.4-3-g9d928cca; its CMake downloads its web UI's
+scripts, checked by MD5). `build.sh` refuses binaries that load anything but glibc.
 
 ### Starting jobs (`daemon/trigger.py`, `host/mikoshi/trigger.service`)
 
