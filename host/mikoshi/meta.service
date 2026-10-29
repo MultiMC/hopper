@@ -25,3 +25,6 @@ ExecStartPost=/usr/bin/rsync -rlt -og --chown=http:http --stats %h/forgemaven/ r
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
+# A run prints tens of thousands of lines in a few seconds; journald's default limit (10000
+# lines per 30 s) dropped the rest, errors at the end included (2026-10-29). Keep them all.
+LogRateLimitIntervalSec=0
