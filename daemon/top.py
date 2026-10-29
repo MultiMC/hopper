@@ -176,8 +176,9 @@ class Top:
         for setup in data["setups"]:
             y = self.draw_setup(y, setup, data)
             y += 1
-        y = self.draw_meta(y, data["meta"])
-        y += 1
+        if data["laminar"]:
+            y = self.draw_laminar(y, data["laminar"])
+            y += 1
         screen.line(y, [("runs", curses.A_BOLD), ("  (Enter: log, h: hopper.log)", curses.A_DIM)])
         y += 1
         self.page = max(1, height - y - 1)
@@ -274,28 +275,47 @@ class Top:
             pieces.append(("files: %s, %s" % (published.get("about") or published.get("kind"), published["snapshot"][:13]), curses.A_DIM))
         return pieces
 
-    def draw_meta(self, y, meta):
-        service, timer = meta["service"], meta["timer"]
-        pieces = [("%-11s" % "meta", curses.A_BOLD)]
-        if service.get("ActiveState") in ("active", "activating"):
-            started = service.get("ExecMainStartTimestamp")
-            pieces.append(("running for %s" % overview.duration(int(age(started))) if started else "running", color(YELLOW, True)))
-        elif service.get("ExecMainStartTimestamp"):
-            ok = service.get("Result") == "success"
-            seconds = overview.seconds_between(service["ExecMainStartTimestamp"], service["InactiveEnterTimestamp"]) \
-                if service.get("InactiveEnterTimestamp") else None
-            pieces += [("last run %s  " % overview.short_time(service["ExecMainStartTimestamp"]), 0),
-                       ("%-10s" % service.get("Result"), color(GREEN) if ok else color(RED, True)),
-                       ("%7s" % overview.duration(seconds), 0)]
+    def draw_laminar(self, y, lam):
+        """Laminar's jobs (logs: its web UI), and the trigger that starts them"""
+        status = lam["status"] or {}
+        pieces = [("%-11s" % "laminar", curses.A_BOLD)]
+        if lam["laminard"].get("ActiveState") != "active":
+            pieces.append(("laminard NOT running: service %s  " % lam["laminard"].get("ActiveState"), color(RED, True)))
+        if lam["trigger"]:
+            pieces.append(("trigger running", color(GREEN)))
+            if status.get("looked") and status.get("pid") == lam["trigger"]:
+                late = age(status["looked"])
+                pieces.append(("  looked %ds ago" % late, color(RED, True) if late > 3 * status.get("interval", 60) else curses.A_DIM))
+            if status.get("problem"):
+                pieces.append(("  last look failed: %s" % status["problem"], color(RED, True)))
         else:
-            pieces.append(("not run since the machine started", curses.A_DIM))
-        if timer.get("NextElapseUSecRealtime"):
-            pieces.append(("  next %s" % timer["NextElapseUSecRealtime"][11:16], curses.A_DIM))
-        else:
-            pieces.append(("  timer off", color(RED, True)))
+            pieces.append(("trigger NOT running: service %s" % lam["service"].get("ActiveState"), color(RED, True)))
         self.screen.line(y, pieces)
-        self.screen.line(y + 1, [("  its output is only in the system journal (journalctl _SYSTEMD_USER_UNIT=meta.service, as an admin)", curses.A_DIM)])
-        return y + 2
+        y += 1
+        for job in lam["jobs"]:
+            self.screen.line(y, self.laminar_job_pieces(job))
+            y += 1
+        return y
+
+    def laminar_job_pieces(self, job):
+        trigger = job["trigger"] or ""
+        source = trigger.split()[-1] if trigger and not trigger.startswith("cron ") else trigger[5:] or "by hand"
+        pieces = [("  %-13s %-12s " % (job["name"], source), 0 if job["trigger"] else curses.A_DIM)]
+        last = job["last_run"]
+        if last:
+            ok = last["result"] == "success"
+            pieces += [("%-22s" % last["run"], 0), ("%-22s" % last["result"], color(GREEN) if ok else color(RED, True)),
+                       ("%s  %7s" % (overview.short_time(last["started"]), overview.duration(last["seconds"])), 0)]
+        if job["running"]:
+            pieces.append(("  running %s" % " ".join(job["running"]), color(YELLOW, True)))
+        elif job["running"] is None:
+            pieces.append(("  (laminard can't be asked)", color(RED)))
+        if job["problem"]:
+            pieces.append(("  %s" % job["problem"], color(RED, True)))
+        seen = job["seen"]
+        if seen.get("next"):
+            pieces.append(("  next %s" % seen["next"][5:16].replace("T", " "), curses.A_DIM))
+        return pieces
 
     def run_pieces(self, setup, run):
         return [(" %-11s %-13s " % (setup["name"], run["job"]), 0)] + self.result_pieces(run)

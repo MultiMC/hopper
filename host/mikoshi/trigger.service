@@ -1,0 +1,32 @@
+# daemon/trigger.py watch: starts Laminar's jobs on a new commit or on a schedule, as each
+# job's TRIGGER in ~/laminar/cfg/jobs/<job>.conf says (Laminar doesn't watch repositories
+# or keep schedules itself). It only queues jobs; Laminar (laminar.service) runs them.
+#
+#   systemctl --user link ~/hopper/host/mikoshi/trigger.service
+#   systemctl --user enable --now trigger.service
+#   ~/hopper/daemon/trigger.py status
+#
+# What it handled is in ~/laminar/trigger.json, what it printed in ~/laminar/trigger.log
+# (its journal output goes to the system journal, which hopper can't read; see
+# hopper@.service). Linked, not copied: after a `git pull` that changes this file or the
+# script, `systemctl --user daemon-reload` and restart.
+
+[Unit]
+Description=hopper's trigger: starts Laminar's jobs on new commits and schedules
+Documentation=file://%h/hopper/README.md
+After=laminar.service
+Wants=laminar.service
+
+[Service]
+WorkingDirectory=%h/hopper
+ExecStart=%h/hopper/daemon/trigger.py watch
+Environment=LAMINAR_HOME=%h/laminar
+Environment=PYTHONUNBUFFERED=1
+# Its exit status on SIGTERM is 128 + SIGTERM: a clean stop, not a failure
+SuccessExitStatus=143
+# A crash of the trigger itself; a failed look (laminard down, GitHub away) is retried by it
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=default.target

@@ -9,7 +9,8 @@ last saw (HOPPER_STATE.status), its service (hopper@<setup>), each job's last ru
 live (the published snapshot, the update channels, the website), and its runs, newest
 first; a file of it that isn't what hopper writes there is its "error" instead, and the
 other setups still show. For the machine: whether a release build runs (the pid holding its lock), the hopper checkout's commit,
-free space, and meta's service and timer.
+free space, and Laminar: each job (meta among them), what starts it (daemon/trigger.py) and
+its last run.
 
 It only reads: run it any time, as the user hopper runs as. Without --json, a short text
 summary; daemon/top.py shows the same live. The JSON is what other views read.
@@ -21,6 +22,7 @@ import json
 import os
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 import common
 import hopper
+import trigger
 
 RUNS = 100  # the newest runs listed per setup
 
@@ -41,7 +44,7 @@ def gather():
         "release_build": common.lock_holder(common.RELEASE_LOCK),
         "disk": disk(common.STATE),
         "setups": [setup(path) for path in setup_files()],
-        "meta": {"service": unit("meta.service"), "timer": unit("meta.timer", "NextElapseUSecRealtime", "LastTriggerUSec")},
+        "laminar": laminar(),
     }
 
 
@@ -149,6 +152,79 @@ def live(settings):
     }
 
 
+LAMINAR_RESULTS = ["unknown", "queued", "running", "aborted", "failed", "success"]  # Laminar's RunState
+
+
+def laminar():
+    """Laminar (LAMINAR_HOME, ~/laminar) and the trigger that starts its jobs: for each job,
+    what starts it, what the trigger last handled, Laminar's last finished run, and its runs
+    going now. None where there is no Laminar."""
+    home = trigger.LAMINAR_HOME
+    jobs_dir = home / "cfg" / "jobs"
+    if not jobs_dir.is_dir():
+        return None
+    status = read_json(home / "trigger.status") or {}
+    handled = read_json(home / "trigger.json") or {}
+    found = trigger.triggers()
+    last_runs = laminar_last_runs(home / "laminar.sqlite")
+    running = laminar_running()
+    jobs = []
+    for run_file in sorted(jobs_dir.glob("*.run")):
+        name = run_file.stem
+        found_trigger = found.get(name)
+        seen = status.get("jobs", {}).get(name) or {}
+        entries = handled.get(name) or []
+        jobs.append({
+            "name": name,
+            "trigger": found_trigger.describe() if isinstance(found_trigger, trigger.Trigger) else None,
+            "problem": found_trigger if isinstance(found_trigger, str) else seen.get("problem"),
+            "seen": seen,
+            "handled": entries[-1] if entries else None,
+            "last_run": last_runs.get(name),
+            "running": [r for r in running if r.split(":")[0] == name] if running is not None else None,
+        })
+    return {
+        "home": str(home),
+        "laminard": unit("laminar.service"),
+        "service": unit("trigger.service"),
+        "trigger": common.lock_holder(home / "trigger.lock"),
+        "status": status or None,
+        "jobs": jobs,
+    }
+
+
+def laminar_last_runs(database):
+    """{job: its newest finished run}, from Laminar's database (read only)"""
+    if not database.exists():
+        return {}
+    try:
+        with sqlite3.connect("file:%s?mode=ro" % database, uri=True, timeout=2) as db:
+            rows = db.execute("SELECT name, number, result, startedAt, completedAt, reason FROM builds b "
+                              "WHERE number = (SELECT MAX(number) FROM builds WHERE name = b.name)").fetchall()
+    except sqlite3.Error:
+        return {}
+    runs = {}
+    for name, number, result, started, completed, reason in rows:
+        runs[name] = {
+            "run": "%s:%d" % (name, number),
+            "result": LAMINAR_RESULTS[result] if 0 <= result < len(LAMINAR_RESULTS) else str(result),
+            "started": common.timestamp(datetime.datetime.fromtimestamp(started)) if started else None,
+            "seconds": completed - started if started and completed else None,
+            "reason": reason or None,
+        }
+    return runs
+
+
+def laminar_running():
+    """The runs going now ("job:number"), or None if laminard can't be asked"""
+    command, env = trigger.laminarc_command("show-running")
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout.split() if result.returncode == 0 else None
+
+
 def unit(name, *properties):
     """A systemd user unit's state, times as hopper writes them (null: never)."""
     properties = properties or ("ActiveState", "SubState", "Result", "UnitFileState", "ActiveEnterTimestamp",
@@ -220,9 +296,18 @@ def print_text(data):
             last = job["last"]
             print("  %-13s %-4s %-26s %s" % (job["name"], "" if job["enabled"] else "off", job["source"].split()[-1] if job["kind"] == "stream" else job["source"],
                                              "%s %s %s %s" % (short_time(last["time"]), last["label"], last["status"], duration(last["seconds"])) if last else "-"))
-    meta = data["meta"]["service"]
-    print("\nmeta: last run %s, %s (exit %s), next %s" % (meta.get("ExecMainStartTimestamp"), meta.get("Result"),
-                                                         meta.get("ExecMainStatus"), data["meta"]["timer"].get("NextElapseUSecRealtime")))
+    lam = data["laminar"]
+    if lam:
+        print("\nlaminar: laminard %s, trigger %s%s" % (
+            lam["laminard"].get("ActiveState"), "running" if lam["trigger"] else "not running",
+            ", last look failed: %s" % lam["status"]["problem"] if (lam["status"] or {}).get("problem") else ""))
+        for job in lam["jobs"]:
+            last = job["last_run"]
+            print("  %-13s %-40s %s%s%s" % (
+                job["name"], job["trigger"] or ("problem: %s" % job["problem"] if job["problem"] else "by hand"),
+                "%s %s %s %s" % (last["run"], last["result"], short_time(last["started"]), duration(last["seconds"])) if last else "-",
+                "  running %s" % " ".join(job["running"]) if job["running"] else "",
+                "  next %s" % short_time(job["seen"]["next"]) if job["seen"].get("next") else ""))
 
 
 def main():

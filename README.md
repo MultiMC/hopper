@@ -16,7 +16,7 @@ directory down and is run from the top of the checkout, e.g.
 
 | Directory | What |
 |-----------|------|
-| `daemon/` | hopper itself and its views. `hopper.py` watches the branches and schedules and moves each new commit or date through build, deploy and publish (`cron.py`: its schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what hopper and its setups are doing (text or `--json`), `top.py` shows it live in the terminal |
+| `daemon/` | hopper itself and its views. `hopper.py` watches the branches and schedules and moves each new commit or date through build, deploy and publish (`cron.py`: its schedules); `trigger.py` starts Laminar's jobs on new commits and schedules; `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what hopper, its setups and Laminar are doing (text or `--json`), `top.py` shows it live in the terminal |
 | `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh`, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/` |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
@@ -24,7 +24,7 @@ directory down and is run from the top of the checkout, e.g.
 | `files/` | The files tree (files.multimc.org), shared by the Launcher, translations and Patreon releases: `deploy.py` deploys a release into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
 | `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree |
 | `config/` | The settings: `defaults.env` (every setting, with its default), `production.env` (none: the defaults as they are; there so every setup has a name), `files2.env` (the files2 test system) |
-| `host/` | What is installed on other machines, by machine. `mikoshi/`: the systemd user units, `hopper@.service` (keeps hopper running, one instance per settings file) and `meta.service`, `meta.timer` (the meta pipeline, MultiMC/meta, moved from deth001 as it was, hourly). `deth001/`: `hopper-ssh`, the only things hopper's SSH key may do on the files host |
+| `host/` | What is installed on other machines, by machine. `mikoshi/`: the systemd user units, `hopper@.service` (keeps hopper running, one instance per settings file), `laminar.service` (Laminar, the experiment) and `trigger.service` (`daemon/trigger.py`, which starts Laminar's jobs). `deth001/`: `hopper-ssh`, the only things hopper's SSH key may do on the files host |
 
 ### State
 
@@ -621,28 +621,65 @@ by TeamCity's old pipeline.
 `daemon/top.py` shows, live and like top, every setup (each settings file but
 `defaults.env`): whether its hopper runs, its service, restarts and last look, each job's
 last run and next scheduled time, what's live (each update channel's newest builds, the
-website on test and production, the last published snapshot), meta's last run and next
-time, and all runs, newest first; Enter opens a run's log (following it while it runs), `h`
+website on test and production, the last published snapshot), Laminar's jobs (meta among
+them: what starts each, its last run, what's running, the next scheduled time; their logs
+are in Laminar's web UI), and all runs, newest first; Enter opens a run's log (following it while it runs), `h`
 the setup's `hopper.log`. SSH is its access control and transport: nothing listens on a
 port, and whoever may log in as `hopper` may look. It only reads: files, `systemctl --user
-show`, and `/proc/locks` for the locks (it never takes one, so it can't get in a build's
+show`, Laminar's database (read only) and `laminarc show-running`, and `/proc/locks` for the locks (it never takes one, so it can't get in a build's
 way). `daemon/overview.py` gathers the same, as text or `--json` for other views (a native client
 over an SSH exec channel, a push to an external page). Actions (retry, release, promote)
 will be requests the running hopper picks up, not commands the view runs.
 
-Not shown: meta's output, which is only in the system journal, out of hopper's reach.
 
-## The meta pipeline (`host/mikoshi/meta.service`, `meta.timer`)
+## Laminar (`host/mikoshi/laminar.service`, an experiment)
+
+[Laminar](https://laminar.ohwg.net), a small CI server, runs jobs as the `hopper` user from
+`~/laminar`: `laminard` and `laminarc` (built from source) in `bin/`, and Laminar's own files
+(`LAMINAR_HOME`: the job definitions in `cfg/`, its own git checkout; `archive/`, `run/`,
+`laminar.sqlite`). Each job is `cfg/jobs/<job>.run`, any executable; Laminar keeps every
+run, its whole log and its result, and shows them at https://hopper.peterix.cz (Caddy in
+front of `127.0.0.1:8091`; internal: this network and the VPN, no login). `laminarc`
+reaches it over `~/laminar/rpc.sock`. Its jobs so far:
+
+- `website`: builds the website (Hugo, in its image) and archives the site; build only,
+  hopper still publishes the website.
+- `meta`: the meta pipeline (below).
+
+### Starting jobs (`daemon/trigger.py`, `host/mikoshi/trigger.service`)
+
+    daemon/trigger.py watch [--once]
+    daemon/trigger.py status
+
+Laminar doesn't watch repositories or keep schedules. `daemon/trigger.py` does, with
+hopper's own rules, and only queues jobs. A job says what starts it in its
+`cfg/jobs/<job>.conf` (Laminar only reads the keys it knows from there):
+
+    TRIGGER=git https://github.com/MultiMC/Website.git master    # laminarc queue website COMMIT=<commit>
+    TRIGGER=cron 0 * * * *                                        # laminarc queue meta SCHEDULED=<time>
+
+Every minute it looks at each trigger: a new commit, or the most recent scheduled time not
+handled yet, queues the job once (after a time off: once, not once per missed commit or
+time; Laminar shows why, "trigger: new commit ..."). On a trigger's first look its current
+commit or time is adopted, not queued. A job that's running or queued already isn't queued
+again; it gets the newest commit when it's free. If `laminarc` fails, nothing is recorded,
+and the next look tries again. What it handled is in `~/laminar/trigger.json`, its last
+look in `trigger.status`, its log in `trigger.log`. Jobs without `TRIGGER` are started by
+hand: `laminarc queue <job>`.
+
+### The meta pipeline (Laminar's job `meta`)
 
 meta.multimc.org's pipeline (the MultiMC/meta repo: `update.sh` and its Python scripts)
 moved from deth001 to mikoshi on 2026-10-26 as it was: same checkout, caches, upstream and
 output repos and `config/` (deploy keys, Discord webhooks), in `~/meta` of the `hopper`
-user, run hourly by `meta.timer` like deth001's cron. Its Python libraries are mikoshi's
-system packages (as on deth001). Only `config/config_local.sh` differs: `update.sh`
-deploys to `root@deth001.multimc.org:/home/http/meta/v1/` through `hopper-ssh`, and
-`DEPLOY_FORGE_MAVEN=false`. The Forge maven copy (`~/forgemaven`, written by
-`enumerateForge.py`) is copied to deth001's `/home/http/forgemaven` after each successful
-run. Changes to meta itself (a container with fixed tool versions, ...) come later.
+user. Since 2026-10-29 it's Laminar's job `meta` (`cfg/jobs/meta.run`: `update.sh`, then
+the Forge maven copy, `~/forgemaven` as written by `enumerateForge.py`, to deth001's
+`/home/http/forgemaven`), started hourly by the trigger (`TRIGGER=cron 0 * * * *`); each
+run's commits of meta's `upstream/` and `multimc/` repos go to its archive. Its Python
+libraries are mikoshi's system packages (as on deth001). Only `config/config_local.sh`
+differs from deth001's: `update.sh` deploys to `root@deth001.multimc.org:/home/http/meta/v1/`
+through `hopper-ssh`, and `DEPLOY_FORGE_MAVEN=false`. Changes to meta itself (a container
+with fixed tool versions, ...) come later.
 
 ## Requirements
 
