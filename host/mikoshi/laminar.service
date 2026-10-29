@@ -1,19 +1,20 @@
 # Laminar (https://laminar.ohwg.net), an experiment: a small CI server running jobs from
 # ~/laminar/cfg/jobs, as the hopper user. Everything is in ~/laminar: laminard and laminarc
 # (built from source) in bin/, and LAMINAR_HOME, Laminar's own files (cfg/, archive/, run/,
-# laminar.sqlite). Its web UI and RPC are unix sockets there, reached over SSH only:
+# laminar.sqlite). Its RPC is a unix socket there; its web UI listens on localhost only, for
+# Caddy, which serves it as https://hopper.peterix.cz (internal: this network and the VPN; no
+# login, so it shows every job and log to anyone who can reach it):
 #
 #   systemctl --user link ~/hopper/host/mikoshi/laminar.service
 #   systemctl --user enable --now laminar.service
 #   laminarc show-jobs          (LAMINAR_HOST from ~/.bash_profile)
-#   ssh -N -L 8081:/srv/hopper/laminar/http.sock hopper@mikoshi    (then http://localhost:8081)
 
 [Unit]
 Description=Laminar CI (experiment)
 
 [Service]
 Environment=LAMINAR_HOME=%h/laminar
-Environment=LAMINAR_BIND_HTTP=unix:%h/laminar/http.sock
+Environment=LAMINAR_BIND_HTTP=127.0.0.1:8091
 Environment=LAMINAR_BIND_RPC=unix:%h/laminar/rpc.sock
 Environment="LAMINAR_TITLE=MultiMC (Laminar experiment)"
 Environment=LAMINAR_KEEP_RUNDIRS=3
