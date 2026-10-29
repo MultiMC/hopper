@@ -1,0 +1,10 @@
+# Runs website-poll.service every minute (Laminar experiment)
+
+[Unit]
+Description=Look for new Website commits every minute (Laminar experiment)
+
+[Timer]
+OnCalendar=minutely
+
+[Install]
+WantedBy=timers.target

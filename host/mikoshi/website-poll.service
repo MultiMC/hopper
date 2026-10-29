@@ -1,0 +1,12 @@
+# Queues a Laminar website build (build only) when the Website repo has a new commit: Laminar
+# doesn't poll repositories itself. Started every minute by website-poll.timer; the script is
+# in Laminar's config, ~/laminar/cfg/scripts/website-poll.
+
+[Unit]
+Description=Queue a Laminar website build for a new Website commit
+After=laminar.service
+
+[Service]
+Type=oneshot
+Environment=LAMINAR_HOST=unix:%h/laminar/rpc.sock
+ExecStart=%h/laminar/cfg/scripts/website-poll
