@@ -1,7 +1,8 @@
 #!/bin/bash
 # In-container build for win32 (image windows-win32: GE-Proton10-15 and the old Win7 build
-# VM's toolchain in $TOOLS: Qt 5.6.3 + MinGW 4.9.2, CMake 3.20.1, dumpbin, GnuWin32 zlib,
-# OpenSSL 1.0, JDK 8u112). Mirrors the TeamCity Windows build, under Wine.
+# VM's toolchain in $TOOLS: Qt 5.6.3 + MinGW 4.9.2, CMake 3.20.1, GnuWin32 zlib,
+# OpenSSL 1.0, JDK 8u112; plus the image's own dumpbin /dependents). Mirrors the TeamCity
+# Windows build, under Wine.
 #
 # Contract (same for every platform, see common.build_command in lib/common.py): source in /src (read-only),
 # output in /out: build tree /out/build, install tree /out/install/MultiMC, logs
