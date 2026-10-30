@@ -646,10 +646,9 @@ reaches it over `~/laminar/rpc.sock`. It picks up new and changed jobs (a `git p
 itself; only replacing the `~/laminar/cfg` link needs a restart of `laminar.service`, as it
 watches the directory it found when it started. Its jobs so far:
 
-- `website`: builds the website (Hugo, in its image) and archives the site; build only,
-  hopper still publishes the website.
 - `meta`: the meta pipeline (below).
-- `translations-production`, `translations-files2`: the translations releases (below).
+- `translations-production`, `translations-files2`, `website-production`,
+  `patrons-production`: hopper's releases (below).
 
 ### Its binaries (`laminar/build.sh`)
 
@@ -671,7 +670,7 @@ Laminar doesn't watch repositories or keep schedules. `daemon/trigger.py` does, 
 hopper's own rules, and only queues jobs. A job says what starts it in its
 `cfg/jobs/<job>.conf` (Laminar only reads the keys it knows from there):
 
-    TRIGGER=git https://github.com/MultiMC/Website.git master    # laminarc queue website COMMIT=<commit>
+    TRIGGER=git https://github.com/MultiMC/Website.git master    # laminarc queue website-production COMMIT=<commit>
     TRIGGER=cron 0 * * * *                                        # laminarc queue meta SCHEDULED=<time>
 
 Every minute it looks at each trigger: a new commit, or the most recent scheduled time not
@@ -697,24 +696,31 @@ differs from deth001's: `update.sh` deploys to `root@deth001.multimc.org:/home/h
 through `hopper-ssh`, and `DEPLOY_FORGE_MAVEN=false`. Changes to meta itself (a container
 with fixed tool versions, ...) come later.
 
-### Translations (Laminar's jobs `translations-production`, `translations-files2`)
+### hopper's releases (Laminar's jobs `<stream>-<setup>`)
 
-Since 2026-10-30, the translations are Laminar's: `config/files2.env` and
-`config/production.env` hand the `translations` stream over (`HOPPER_HANDED_OFF=translations`,
-so hopper leaves it alone and shows it as off), and the trigger starts both jobs for each new
-commit of the Translations repo's `master`. Both jobs' `.run` are links to one script,
-`cfg/scripts/translations`, which runs the same scripts hopper ran, in the same order, with
-the settings the job's name names (`translations-files2`: `config/files2.env`):
-`translations/build.py`, `files/deploy.py`, `files/publish.py`, then `daemon/releases.py
-cleanup` (a failure of that is only logged). The release stays in `RELEASES_DIR`, under its
-cleanup; the archive gets its path, `manifest.json` and `release.log`. `laminarc queue
-translations-production COMMIT=<sha>` releases a given commit.
+Since 2026-10-30, hopper's translations, website and Patreon credits are Laminar's: a
+settings file hands a stream or scheduled job over with `HOPPER_HANDED_OFF` (hopper then
+leaves it alone and shows it as off), and Laminar's job `<stream>-<setup>` releases it with
+`config/<setup>.env`: `translations-production` and `translations-files2` for each new commit
+of the Translations repo's `master`, `website-production` for each new commit of the Website
+repo's `master` (it replaced the build-only `website` job, whose runs stay in Laminar's
+history), `patrons-production` every day at noon (hopper's `PATRONS_SCHEDULE`). Their `.run`
+are links to one script, `cfg/scripts/release`, which runs the same scripts hopper ran, in
+the same order:
+
+- translations: `translations/build.py`, `files/deploy.py`, `files/publish.py`
+- patrons: `patrons/update.py`, `files/deploy.py`, `files/publish.py`
+- website: `website/build.py`, `website/publish.py` (to test; production is still promoted
+  by hand, `website/publish.py --production`)
+
+then `daemon/releases.py cleanup` (a failure of that is only logged). The release stays in
+`RELEASES_DIR`, under its cleanup; the archive gets its path, `manifest.json` and its build
+log. `laminarc queue translations-production COMMIT=<sha>` releases a given commit.
 
 hopper's scripts stop at once when a lock they need is held (another release build, the
 files tree). Nothing retries a Laminar job, so the job sets `HOPPER_LOCK_WAIT=3600`: they
 wait up to an hour for the lock instead, and say so in the log. Their contexts,
-`production` and `files2` (`EXECUTORS=1` each), are meant for every job that writes that
-tree.
+`production` and `files2` (`EXECUTORS=1` each), run one job of each setup at a time.
 
 Tested 2026-10-30 in a throwaway laminard with a scratch copy of files2's tree (live tree:
 a local directory; the bucket and the purge skipped, the only change to the script): the
