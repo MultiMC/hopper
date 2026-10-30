@@ -1,8 +1,8 @@
 #!/bin/bash
 # In-container build for win32 (image windows-win32: GE-Proton10-15 and the old Win7 build
 # VM's toolchain in $TOOLS: Qt 5.6.3 + MinGW 4.9.2, CMake 3.20.1, GnuWin32 zlib,
-# OpenSSL 1.0, JDK 8u112; plus the image's own dumpbin /dependents). Mirrors the TeamCity
-# Windows build, under Wine.
+# OpenSSL 1.0; plus the image's own dumpbin /dependents and Temurin JDK 8). Mirrors the
+# TeamCity Windows build, under Wine.
 #
 # Contract (same for every platform, see common.build_command in lib/common.py): source in /src (read-only),
 # output in /out: build tree /out/build, install tree /out/install/MultiMC, logs
@@ -27,8 +27,10 @@ ln -sfn "$TOOLS" "$WINEPREFIX/dosdevices/t:"
 ln -sfn /src "$WINEPREFIX/dosdevices/s:"
 ln -sfn /out "$WINEPREFIX/dosdevices/o:"
 
-export WINEPATH='T:\Qt\Tools\mingw492_32\bin;T:\Qt\5.6.3\mingw49_32\bin;T:\Tools;T:\GnuWin32\bin;T:\jdk1.8.0_112\bin'
-export JAVA_HOME='T:\jdk1.8.0_112'
+# The image says where its JDK is; images from before 2026-10-30 have the VM's at a fixed path.
+JDK=${JDK:-'T:\jdk1.8.0_112'}
+export WINEPATH='T:\Qt\Tools\mingw492_32\bin;T:\Qt\5.6.3\mingw49_32\bin;T:\Tools;T:\GnuWin32\bin;'"$JDK"'\bin'
+export JAVA_HOME="$JDK"
 CMAKE='T:\CMake-3.20.1\bin\cmake.exe'
 QT='T:\Qt\5.6.3\mingw49_32'
 
