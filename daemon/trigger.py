@@ -23,9 +23,9 @@ watch    every INTERVAL seconds (60), look at each trigger. A new commit, or the
 status   each trigger, what it last handled and the Laminar run it queued
 
 On the first look at a trigger, its current commit or most recent scheduled time is
-adopted, not queued: it is assumed to be handled already (as hopper adopts a stream's
-head). A job that is running or queued already isn't queued again; it's looked at again
-next time, and then gets the newest commit. If laminarc fails (laminard down), nothing is
+adopted, not queued: it is assumed to be handled already (as hopper's daemon adopted a
+stream's head). A job that is running or queued already isn't queued again; it's looked at
+again next time, and then gets the newest commit. If laminarc fails (laminard down), nothing is
 recorded and the next look tries again: a commit or a scheduled time is never skipped.
 
 Kept in LAMINAR_HOME (default ~/laminar), next to Laminar's own files:

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""What hopper and meta are doing on this machine, gathered from their files and systemd.
+"""What's released and what Laminar is doing on this machine, gathered from files, Laminar
+and systemd.
 
     daemon/overview.py [--json]
 
-For every setup (each settings file next to this script but defaults.env: production,
-files2), from its files: whether its hopper runs (the pid holding HOPPER_STATE's lock) and what it
-last saw (HOPPER_STATE.status), its service (hopper@<setup>), each job's last run, what's
-live (the published snapshot, the update channels, the website), and its runs, newest
-first; a file of it that isn't what hopper writes there is its "error" instead, and the
-other setups still show. For the machine: whether a release build runs (the pid holding its lock), the hopper checkout's commit,
-free space, and Laminar: each job (meta among them), what starts it (daemon/trigger.py) and
-its last run.
+For every setup (each settings file in config/ but defaults.env: production, files2), what's
+live: the published snapshot of its files tree, the newest version in each update channel,
+the website; a file of it that isn't what the scripts write there is its "error" instead,
+and the other setups still show. For the machine: whether a release build runs (the pid
+holding its lock), the hopper checkout's commit, free space, and Laminar: each job, what
+starts it (daemon/trigger.py) and its last run, and the runs, newest first, each with the
+URL of its log.
 
-It only reads: run it any time, as the user hopper runs as. Without --json, a short text
+It only reads: run it any time, as the user the jobs run as (hopper). Without --json, a short text
 summary; daemon/top.py shows the same live. The JSON is what other views read.
 """
 
@@ -25,16 +25,18 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # The shared code is in lib/, next to this directory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 import common
-import hopper
 import trigger
 
-RUNS = 100  # the newest runs listed per setup
+RUNS = 100  # the newest runs listed
+# Laminar's web UI and logs: laminar.service's LAMINAR_BIND_HTTP
+LAMINAR_HTTP = os.environ.get("LAMINAR_HTTP") or "http://127.0.0.1:8091"
 
 def gather():
     return {
@@ -54,74 +56,18 @@ def setup_files():
 
 
 def setup(path):
-    """A setup's hopper and service, and what its files say. A file of it that isn't what hopper
-    writes there is its "error", in place of what its files say: the other setups still show."""
-    settings = common.load_settings(path)
-    state_path = Path(settings["HOPPER_STATE"])
-    summary = {
-        "name": path.stem,
-        "config": str(path),
-        "running": common.lock_holder(str(state_path) + ".lock"),
-        "service": unit("hopper@%s.service" % path.stem),
-        "status": None,
-        "log": str(state_path) + ".logs/hopper.log",
-        "jobs": [],
-        "live": None,
-        "runs": [],
-        "error": None,
-    }
+    """What a setup has live. A file of it that isn't what the scripts write there is its
+    "error", in place of that: the other setups still show."""
+    summary = {"name": path.stem, "config": str(path), "live": None, "error": None}
     try:
-        summary.update(from_files(settings, state_path))
+        summary["live"] = live(common.load_settings(path))
     except Unreadable as error:
-        summary["error"] = "%s: not what hopper writes there" % error
+        summary["error"] = "%s: not what the scripts write there" % error
     return summary
 
 
 class Unreadable(Exception):
-    """A file that isn't what hopper writes there (its path)."""
-
-
-def from_files(settings, state_path):
-    entries = read_json(state_path) or {}
-    status = read_json(Path(str(state_path) + ".status"))
-    try:
-        runs = sorted(((name, e) for name, es in entries.items() if name in hopper.JOBS for e in es),
-                      key=lambda item: common.parse_time(item[1]["time"]), reverse=True)
-        jobs = [job_summary(settings, job, entries.get(job.name, []), (status or {}).get("jobs", {}).get(job.name))
-                for job in hopper.JOBS.values()]
-        runs = [run_summary(name, e) for name, e in runs[:RUNS]]
-    except (ValueError, KeyError, TypeError, AttributeError):
-        raise Unreadable(state_path)
-    return {"status": status, "jobs": jobs, "live": live(settings), "runs": runs}
-
-
-def job_summary(settings, job, entries, seen):
-    stream = job.name in hopper.STREAMS
-    summary = {
-        "name": job.name,
-        "kind": "stream" if stream else "scheduled",
-        "enabled": job.enabled(settings),
-        "off": job.off(settings),
-        "source": ("%s %s" % (settings[job.repo_setting], settings[job.branch_setting]) if stream
-                   else settings[job.schedule_setting]),
-        "seen": seen,
-        "last": run_summary(job.name, entries[-1]) if entries else None,
-        "last_published": next((run_summary(job.name, e) for e in reversed(entries) if e["status"] == "published"), None),
-    }
-    if stream and seen and seen.get("head"):
-        summary["head_handled"] = any(e.get("commit") == seen["head"] for e in entries)
-    return summary
-
-
-def run_summary(job, entry):
-    """A state entry, with its job, a label, and how long it took (so far)."""
-    steps = entry.get("steps", [])
-    end = entry.get("finished") or (steps[-1].get("end") if steps else None)
-    if entry["status"] == "running":
-        end = common.now()
-    return {**entry, "job": job, "label": hopper.label(entry),
-            "release": os.path.basename(entry["release"]) if entry.get("release") else None,
-            "seconds": seconds_between(entry["time"], end) if end else None}
+    """A file that isn't what the scripts write there (its path)."""
 
 
 def live(settings):
@@ -167,7 +113,8 @@ def laminar():
     status = read_json(home / "trigger.status") or {}
     handled = read_json(home / "trigger.json") or {}
     found = trigger.triggers()
-    last_runs = laminar_last_runs(home / "laminar.sqlite")
+    database = home / "laminar.sqlite"
+    last_runs = laminar_last_runs(database)
     running = laminar_running()
     jobs = []
     for run_file in sorted(jobs_dir.glob("*.run")):
@@ -191,29 +138,46 @@ def laminar():
         "trigger": common.lock_holder(home / "trigger.lock"),
         "status": status or None,
         "jobs": jobs,
+        "runs": laminar_runs(database),
     }
+
+
+def log_url(run):
+    job, number = run.split(":")
+    return "%s/log/%s/%s" % (LAMINAR_HTTP, job, number)
 
 
 def laminar_last_runs(database):
     """{job: its newest finished run}, from Laminar's database (read only)"""
+    return {run["job"]: run for run in laminar_query(
+        database, "WHERE number = (SELECT MAX(number) FROM builds WHERE name = b.name AND result IS NOT NULL)")}
+
+
+def laminar_runs(database):
+    """The newest RUNS runs (those going now among them), newest first, from Laminar's
+    database (read only)"""
+    return laminar_query(database, "ORDER BY COALESCE(startedAt, queuedAt) DESC LIMIT %d" % RUNS)
+
+
+def laminar_query(database, where):
     if not database.exists():
-        return {}
+        return []
     try:
         with sqlite3.connect("file:%s?mode=ro" % database, uri=True, timeout=2) as db:
-            rows = db.execute("SELECT name, number, result, startedAt, completedAt, reason FROM builds b "
-                              "WHERE number = (SELECT MAX(number) FROM builds WHERE name = b.name)").fetchall()
+            rows = db.execute("SELECT name, number, result, startedAt, completedAt, reason FROM builds b " + where).fetchall()
     except sqlite3.Error:
-        return {}
-    runs = {}
-    for name, number, result, started, completed, reason in rows:
-        runs[name] = {
-            "run": "%s:%d" % (name, number),
-            "result": LAMINAR_RESULTS[result] if 0 <= result < len(LAMINAR_RESULTS) else str(result),
-            "started": common.timestamp(datetime.datetime.fromtimestamp(started)) if started else None,
-            "seconds": completed - started if started and completed else None,
-            "reason": reason or None,
-        }
-    return runs
+        return []
+    return [{
+        "run": "%s:%d" % (name, number),
+        "job": name,
+        # no result yet: going now
+        "result": (("running" if started else "queued") if result is None else
+                   LAMINAR_RESULTS[result] if 0 <= result < len(LAMINAR_RESULTS) else str(result)),
+        "started": common.timestamp(datetime.datetime.fromtimestamp(started)) if started else None,
+        "seconds": (completed or int(time.time())) - started if started else None,  # so far, if going
+        "reason": reason or None,
+        "log": log_url("%s:%d" % (name, number)),
+    } for name, number, result, started, completed, reason in rows]
 
 
 def laminar_running():
@@ -227,7 +191,7 @@ def laminar_running():
 
 
 def unit(name, *properties):
-    """A systemd user unit's state, times as hopper writes them (null: never)."""
+    """A systemd user unit's state, times as common.timestamp writes them (null: never)."""
     properties = properties or ("ActiveState", "SubState", "Result", "UnitFileState", "ActiveEnterTimestamp",
                                 "InactiveEnterTimestamp", "ExecMainStartTimestamp", "ExecMainExitTimestamp",
                                 "ExecMainStatus", "NRestarts", "MainPID")
@@ -266,10 +230,6 @@ def read_json(path):
         raise Unreadable(path)
 
 
-def seconds_between(start, end):
-    return int((common.parse_time(end) - common.parse_time(start)).total_seconds())
-
-
 def duration(seconds):
     if seconds is None:
         return ""
@@ -287,16 +247,16 @@ def print_text(data):
     print("%s  %s  code %s%s" % (data["host"], data["time"], data["code"],
                                  "  (a release build is running)" if data["release_build"] else ""))
     for s in data["setups"]:
-        service = s["service"]
-        print("\n%s: hopper %s, service %s/%s, %s restarts" % (
-            s["name"], "running" if s["running"] else "not running", service.get("ActiveState"),
-            service.get("UnitFileState"), service.get("NRestarts")))
         if s["error"]:
-            print("  can't read its files: %s" % s["error"])
-        for job in s["jobs"]:
-            last = job["last"]
-            print("  %-13s %-4s %-26s %s" % (job["name"], "" if job["enabled"] else "off", job["source"].split()[-1] if job["kind"] == "stream" else job["source"],
-                                             "%s %s %s %s" % (short_time(last["time"]), last["label"], last["status"], duration(last["seconds"])) if last else "-"))
+            print("\n%s: can't read its files: %s" % (s["name"], s["error"]))
+            continue
+        live = s["live"]
+        published = live["published"]
+        print("\n%s: published %s" % (s["name"], published["snapshot"] if published else "-"))
+        for channel, versions in sorted(live["channels"].items()):
+            print("  %-13s %s" % (channel, " ".join(sorted(versions, key=lambda v: int(v) if v.isdigit() else 0, reverse=True))))
+        if live["website"]:
+            print("  %-13s %s" % ("website", "  ".join("%s %s" % item for item in sorted(live["website"].items()))))
     lam = data["laminar"]
     if lam:
         print("\nlaminar: laminard %s, trigger %s%s" % (
@@ -304,7 +264,7 @@ def print_text(data):
             ", last look failed: %s" % lam["status"]["problem"] if (lam["status"] or {}).get("problem") else ""))
         for job in lam["jobs"]:
             last = job["last_run"]
-            print("  %-13s %-40s %s%s%s" % (
+            print("  %-23s %-40s %s%s%s" % (
                 job["name"], job["trigger"] or ("problem: %s" % job["problem"] if job["problem"] else "by hand"),
                 "%s %s %s %s" % (last["run"], last["result"], short_time(last["started"]), duration(last["seconds"])) if last else "-",
                 "  running %s" % " ".join(job["running"]) if job["running"] else "",

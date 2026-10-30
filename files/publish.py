@@ -9,7 +9,7 @@ difference between it and the tree now is what gets published, whatever deploys 
 records a new snapshot. Restoring an earlier snapshot and publishing puts the live site
 back to it.
 
-1. With FILES_ORIGIN set (a live tree other jobs also write to, like deth001's): checks
+1. With FILES_ORIGIN set (a live tree other jobs also write to, like the files server's): checks
    that every changed file on the live tree is either its published or its new version,
    so nothing changed there that this publish doesn't know about (and publishing again,
    or after an interruption, still works). Then copies the files there, as
@@ -140,7 +140,7 @@ def links_to(directory, paths):
 
 def live_hashes(settings, paths):
     """{path: sha256 or None} for these paths in the live tree (FILES_ORIGIN: host:dir or a dir).
-    On a host, through hopper-ssh (host/deth001/hopper-ssh, installed there), the only commands the
+    On a host, through hopper-ssh (host/fileserver/hopper-ssh, installed there), the only commands the
     automation's key may run besides rsync."""
     origin = settings["FILES_ORIGIN"]
     if not paths:

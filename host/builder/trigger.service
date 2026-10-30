@@ -2,13 +2,13 @@
 # job's TRIGGER in ~/laminar/cfg/jobs/<job>.conf says (Laminar doesn't watch repositories
 # or keep schedules itself). It only queues jobs; Laminar (laminar.service) runs them.
 #
-#   systemctl --user link ~/hopper/host/mikoshi/trigger.service
+#   systemctl --user link ~/hopper/host/builder/trigger.service
 #   systemctl --user enable --now trigger.service
 #   ~/hopper/daemon/trigger.py status
 #
 # What it handled is in ~/laminar/trigger.json, what it printed in ~/laminar/trigger.log
-# (its journal output goes to the system journal, which hopper can't read; see
-# hopper@.service). Linked, not copied: after a `git pull` that changes this file or the
+# (its journal output goes to the system journal: hopper's uid is a system user's, for which
+# journald keeps no per-user journal, so hopper itself can't read it). Linked, not copied: after a `git pull` that changes this file or the
 # script, `systemctl --user daemon-reload` and restart.
 
 [Unit]

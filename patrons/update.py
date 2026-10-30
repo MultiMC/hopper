@@ -8,7 +8,7 @@ Asks Patreon's API (v2; v1, which TeamCity's patronupdater.py used, is gone sinc
 in tokens.cfg ([Config] reward), sorted by name, followed by a line counting the active
 patrons without a tier ("And N others who wish to remain anonymous."). patrons.json has
 the credited patrons with their image and Patreon URLs. Then files/deploy.py and files/publish.py put
-patrons.txt live, like any release (hopper runs all three on PATRONS_SCHEDULE).
+patrons.txt live, like any release (Laminar's job patrons-production runs all three daily).
 
 The token file is PATRONS_CONFIG/tokens.cfg ([Keys] clientid, clientsecret, refreshtoken,
 accesstoken), on one machine only (empty PATRONS_CONFIG, as for files2: refused). Every

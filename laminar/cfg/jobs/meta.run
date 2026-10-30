@@ -1,7 +1,7 @@
 #!/bin/bash -eu
 # The meta pipeline (MultiMC/meta, checkout in ~/meta): its update.sh, then the Forge maven
-# copy that enumerateForge.py keeps in ~/forgemaven goes to deth001 (it only grows: no
-# deletes). Started hourly by hopper's trigger (TRIGGER in meta.conf).
+# copy that enumerateForge.py keeps in ~/forgemaven goes to the files server (it only
+# grows: no deletes). Started hourly by hopper's trigger (TRIGGER in meta.conf).
 # The commits meta's upstream/ and multimc/ repositories ended at go to $ARCHIVE/commits.
 #
 #     laminarc queue meta
@@ -15,9 +15,9 @@ record() {
 }
 trap record EXIT
 
-# Low priority, as meta.service ran it: it shares mikoshi with the release builds
+# Low priority, as meta.service ran it: it shares the build server with the release builds
 nice -n 10 ionice -c 2 -n 7 ./update.sh
 
-echo "copying the Forge maven to deth001"
+echo "copying the Forge maven to the files server"
 nice -n 10 ionice -c 2 -n 7 \
     rsync -rlt -og --chown=http:http --stats "$HOME/forgemaven/" root@deth001.multimc.org:/home/http/forgemaven/

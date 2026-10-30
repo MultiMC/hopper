@@ -1,9 +1,7 @@
 #!/bin/bash -eu
-# One of hopper's streams or scheduled jobs, released the way hopper did it before the
-# settings file handed it to Laminar (HOPPER_HANDED_OFF). The job's name says which, and
-# with which settings: <stream>-<setup>, e.g. translations-files2 is the translations with
-# config/files2.env. Each such job's .run is a link to this file. The same scripts as
-# hopper's, in the same order:
+# A release of one of hopper's streams. The job's name says which, and with which settings:
+# <stream>-<setup>, e.g. translations-files2 is the translations with config/files2.env.
+# Each such job's .run is a link to this file. It runs hopper's scripts, in this order:
 #
 #   launcher      launcher/release-build.py [$COMMIT], files/deploy.py, files/publish.py
 #   translations  translations/build.py [$COMMIT], files/deploy.py, files/publish.py

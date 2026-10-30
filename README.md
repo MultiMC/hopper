@@ -16,23 +16,23 @@ directory down and is run from the top of the checkout, e.g.
 
 | Directory | What |
 |-----------|------|
-| `daemon/` | hopper itself and its views. `hopper.py` watches the branches and schedules and moves each new commit or date through build, deploy and publish (`cron.py`: its schedules); `trigger.py` starts Laminar's jobs on new commits and schedules; `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what hopper, its setups and Laminar are doing (text or `--json`), `top.py` shows it live in the terminal |
+| `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing (text or `--json`), `top.py` shows it live in the terminal |
 | `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh`, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/` |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
 | `files/` | The files tree (files.multimc.org), shared by the Launcher, translations and Patreon releases: `deploy.py` deploys a release into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
-| `laminar/` | Laminar (the experiment): `cfg/`, its config (`jobs/<job>.run` and `.conf`, `contexts/`), linked as `~/laminar/cfg`; `build.sh` and `Containerfile` build its binaries, linked against nothing but glibc |
+| `laminar/` | Laminar, which runs the jobs: `cfg/`, its config (`jobs/<job>.run` and `.conf`, `contexts/`), linked as `~/laminar/cfg`; `build.sh` and `Containerfile` build its binaries, linked against nothing but glibc |
 | `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree |
-| `config/` | The settings: `defaults.env` (every setting, with its default), `production.env` (none: the defaults as they are; there so every setup has a name), `files2.env` (the files2 test system) |
-| `host/` | What is installed on other machines, by machine. `mikoshi/`: the systemd user units, `hopper@.service` (keeps hopper running, one instance per settings file), `laminar.service` (Laminar, the experiment) and `trigger.service` (`daemon/trigger.py`, which starts Laminar's jobs). `deth001/`: `hopper-ssh`, the only things hopper's SSH key may do on the files host |
+| `config/` | The settings: `defaults.env` (every setting, with its default), `production.env` (none: the defaults as they are; there so every setup has a name, for Laminar's jobs `<stream>-<setup>`), `files2.env` (the files2 test system) |
+| `host/` | What is installed on other machines, by machine. `builder/`: the build server's systemd user units, `laminar.service` (Laminar) and `trigger.service` (`daemon/trigger.py`, which starts Laminar's jobs). `fileserver/`: `hopper-ssh`, the only things hopper's SSH key may do on the files server |
 
 ### State
 
 What the scripts keep between runs is outside the checkout, in `$STATE`:
 `$XDG_STATE_HOME/hopper`, by default `~/.local/state/hopper` (`lib/common.py`). It holds the
-repo mirrors, the incremental work trees, the releases, the build counters, hopper's
-records and logs, and the local files trees (btrfs subvolumes). Settings may use `$STATE`;
+repo mirrors, the incremental work trees, the releases, the build counters, the retired
+daemon's records, and the local files trees (btrfs subvolumes). Settings may use `$STATE`;
 the paths below written as `$STATE/...` are its defaults. Nothing in it is in git.
 
 ## Principles
@@ -81,7 +81,7 @@ setting to the build's own value when the Launcher being built has the option.
 **Container engine:** `CONTAINER_ENGINE` is `docker` (default; containers run as the
 calling user with `-u`) or `podman` (rootless, with `--userns=keep-id`, so the calling user
 is the same user inside and owns what the containers write). Everything that starts a
-container goes through `common.container_run`. mikoshi uses Podman: its automation user
+container goes through `common.container_run`. The build server uses Podman: its automation user
 has no Docker access, since the `docker` group is equivalent to root.
 
 ## Building one platform
@@ -160,7 +160,7 @@ Launcher releases older than the newest `RELEASES_KEEP_BUILD_TREES` (3) lose `bu
 (launcher, translations, patrons, template) only the newest `RELEASES_KEEP` (30) are kept
 at all. Nothing younger than `RELEASES_MIN_AGE_HOURS` (24) is touched; leftovers of
 interrupted builds (`.preparing-*`) go once they are older. It takes the release lock (and
-skips the run if a build holds it). hopper runs it after every publish.
+skips the run if a build holds it). The release jobs run it after every publish.
 
 ### One at a time
 
@@ -250,7 +250,7 @@ Needs `objdump` and `llvm-otool` on the host.
 
 ## Deploying
 
-    files/pull.py [--dry-run]                         # FILES_ROOT := exact copy of FILES_ORIGIN (deth001)
+    files/pull.py [--dry-run]                         # FILES_ROOT := exact copy of FILES_ORIGIN (the files server)
     files/deploy.py <release dir>                           # deploy a release into FILES_ROOT
     files/publish.py [--dry-run] [--no-bucket] [--no-purge] # publish what changed since the last publish
 
@@ -263,7 +263,7 @@ the local tree; publishing makes the live site match it.
 Snapshots the tree (to undo it: `files/snapshots.py restore`), then changes it. Nothing
 is published; the tree is locked while it runs.
 
-**Launcher builds:** does what TeamCity's deploy steps did on deth001, with the same
+**Launcher builds:** does what TeamCity's deploy steps did on the files server, with the same
 repoman (`IMAGE_DEPLOYER`, Toolchains: `containers/deployer`), as the calling user, without
 network: for each platform `repoman -c update push <platform> <branch> <build> <version>
 <bundle>/` (adds `update/<platform>/<branch>/<build>.json`, adds it to the channel's
@@ -320,11 +320,11 @@ Without the bucket or purge settings `files/publish.py` refuses to start; `--no-
 `--no-purge` skip them deliberately. Production's bucket is the R2 bucket `multimc-files`
 (served at `files-r2.multimc.org`), replacing Amazon S3; files2's is `multimc-files2`
 (`files2-r2.multimc.org`). Both were seeded on 2026-10-24 (files2: 3.2 GB in 98 s;
-production: synced from the deth001 tree it had held files2's data before). Until cutover
-TeamCity keeps releasing to deth001 and S3, so the production bucket falls behind; re-sync
+production: synced from the files server's tree it had held files2's data before). Until cutover
+TeamCity keeps releasing to the files server and S3, so the production bucket falls behind; re-sync
 it then (`rclone sync` of `$STATE/files` after `files/pull.py`). The Patreon job doesn't
 write to it yet either. `notifications.json` is edited by hand. (TeamCity's deploy instead
-synced the whole live tree to S3 from deth001, where the tree is.) `FILES_ORIGIN` can also
+synced the whole live tree to S3 from the files server, where the tree is.) `FILES_ORIGIN` can also
 be a local directory. Empty, there is no live tree: the whole local tree is synced to the
 bucket, deleting what the tree no longer has.
 
@@ -343,11 +343,11 @@ Verified:
 - 2026-10-24, the purge on files2: the lin64 download was in Cloudflare's cache (`HIT`,
   build 5002's); after publishing 5005 the next request was a `MISS` that returned 5005's
   package, and the one after a `HIT` again.
-- 2026-10-24, the full production path on files2 (deth001 + R2 + purge): builds 5011 (with
+- 2026-10-24, the full production path on files2 (files server + R2 + purge): builds 5011 (with
   s3cmd) and 5012 (with rclone, through hopper); afterwards the bucket matched the local
   tree exactly (`rclone check`, 9774 files). Not yet run for files.multimc.org.
 - 2026-10-25, on files2: build 5013 (through hopper, 26 files: only what changed; before,
-  every publish handled all the release's ~100 files); afterwards deth001 and the bucket
+  every publish handled all the release's ~100 files); afterwards the files server and the bucket
   matched the local tree; publishing again found everything already published; a live
   download changed by hand stopped it before anything was copied. Then the first
   translations release (the
@@ -398,9 +398,9 @@ Verified 2026-10-23 on a copy of the tree: a deploy's snapshot showed exactly wh
 changed, restoring it gave back the original tree byte for byte, and deploying again
 worked. `$STATE/files` and `$STATE/files2` were converted with `init` the same day.
 
-### Access to the files host (`host/deth001/hopper-ssh`)
+### Access to the files server (`host/fileserver/hopper-ssh`)
 
-On mikoshi the automation reaches deth001 with its own key (`hopper@mikoshi`), which root's
+On the build server the automation reaches the files server with its own key (`hopper@builder`), which root's
 `authorized_keys` there ties to `/usr/local/bin/hopper-ssh` (`restrict,command=...`). The
 wrapper allows only `hopper-ssh hash <tree>` (SHA-256 of listed files; the live check),
 `hopper-ssh remove <tree>` (removals when publishing) and rsync's server side, all inside
@@ -418,15 +418,15 @@ first pull is ~3 GB (2 min), later ones only the changes.
 ## The files2 test system (`config/files2.env`)
 
 A parallel system set up like production, so the whole path can be exercised without
-touching files.multimc.org. Since 2026-10-24 deth001 serves the live tree
-(`/home/http/files2`, Caddy site `files2.multimc.org` next to `files`, see deth001-config),
+touching files.multimc.org. Since 2026-10-24 the files server serves the live tree
+(`/home/http/files2`, Caddy site `files2.multimc.org` next to `files`, see the files server's own config),
 and the Cloudflare R2 bucket `multimc-files` holds a copy, as production's bucket will; it can serve files2 as a fallback through its custom domain (the `r2.dev`
 address is off). `$STATE/files2` is the local working tree, nothing else writes to files2.
 Builds made with `--config config/files2.env` update from files2 only.
 
-Moving files2 onto deth001 (2026-10-24): the production tree was copied on the server,
+Moving files2 onto the files server (2026-10-24): the production tree was copied on the server,
 rsync then made it identical to `$STATE/files2` (131 files, 219 MB); build 5011 was then
-published through the full production path (live-index check, copy to deth001, upload to
+published through the full production path (live-index check, copy to the files server, upload to
 R2, purge), 39 s.
 
     launcher/release-build.py --config config/files2.env
@@ -484,8 +484,8 @@ one-time effect of `update.py` handing files to `lupdate` in sorted order.
 `tokens.cfg` (`[Config] reward`, the "Patron" tier) by name, then "And N others who wish to
 remain anonymous." for active patrons without a tier; `patrons.json` adds image and
 Patreon URLs. Made with Patreon's API v2, plain HTTP. Then `files/deploy.py` and `files/publish.py`, as
-for any release (only `patrons.txt` goes live, as before). hopper runs all three on
-`PATRONS_SCHEDULE` (default `0 12 * * *`, daily at noon).
+for any release (only `patrons.txt` goes live, as before). Laminar's job `patrons-production`
+runs all three daily at noon.
 
 - **The token** is `PATRONS_CONFIG/tokens.cfg` (`~/.config/multimc-deploy/patreon/`, mode
   600): the API client and a refresh token. Every run refreshes it first; Patreon then
@@ -519,123 +519,58 @@ clock.
 Publishing works like TeamCity's "Publish Test" and "Publish Prod", but with R2 instead of
 AWS S3: `website/publish.py` makes the test bucket (`WEBSITE_TEST_TARGET`, served at
 `WEBSITE_TEST_URL`) an exact copy of a release, purges its URLs (and those of removed files)
-from Cloudflare's cache, and records the release in `RELEASES_DIR/website-test.live`. hopper
-does this for every new commit (the `website` stream). `--production` promotes the release
+from Cloudflare's cache, and records the release in `RELEASES_DIR/website-test.live`.
+Laminar's job `website-production` does this for every new commit. `--production` promotes the release
 that is on test to `WEBSITE_TARGET` (`WEBSITE_URL`), so production gets exactly the files
 checked on test; it's run by hand. The release cleanup never removes a release that is live
 (`*.live`). The website is production's only (`WEBSITE_REPO` is empty in `config/files2.env`).
 
-## hopper (`daemon/hopper.py`)
+## On the build server
 
-    daemon/hopper.py [--config FILE] watch [--once]
-    daemon/hopper.py [--config FILE] release <launcher|translations> <commit>
-    daemon/hopper.py [--config FILE] release patrons
-    daemon/hopper.py [--config FILE] status
-
-hopper moves releases through their stages. For now it is the trigger, for three streams:
-`launcher` (`LAUNCHER_BRANCH` of `LAUNCHER_REPO`, built by `launcher/release-build.py`) and
-`translations` (`TRANSLATIONS_BRANCH` of `TRANSLATIONS_REPO`, built by
-`translations/build.py`) and `website` (`WEBSITE_BRANCH` of `WEBSITE_REPO`, built by
-`website/build.py` and published to the test site by `website/publish.py` instead of
-`files/deploy.py` and `files/publish.py`; off where `WEBSITE_REPO` is empty). `watch` looks at the head of each every `WATCH_INTERVAL` seconds
-(`git ls-remote`), and a commit it hasn't handled goes through the stream's build,
-`files/deploy.py` and `files/publish.py`, each only if the one before succeeded. It also runs
-scheduled jobs, with cron-style schedules (`daemon/cron.py`): `patrons` (`patrons/update.py` on
-`PATRONS_SCHEDULE`, only where `PATRONS_CONFIG` is set). A scheduled job runs once for the
-most recent scheduled time it hasn't handled: after the machine was off, once, not once
-per missed time. A stream or scheduled job named in `HOPPER_HANDED_OFF` is left to its
-Laminar job instead (see Laminar below), and shows as off. Since 2026-10-30 production's and files2's
-settings hand all of them over, so their hoppers run idle until they're retired. A release whose deploy changed nothing (e.g. a
-Translations commit that only updates the template) is published as a no-op. It builds and publishes nothing itself, so every
-step can still be run and inspected by hand. Tagging, promotion, purging and the backend
-for a UI are meant to join it as further commands, working on the same files tree and
-plain state files (see `UPDATER.md` in the MultiMC project directory).
-
-- **State:** `HOPPER_STATE` (JSON, one list per stream) records every handled commit: time, build number,
-  release directory, status (`published`, `failed`, `interrupted`, `adopted`), the step
-  it stopped at, and when each step started and ended (with its exit status); `status`
-  prints it. Each run's output goes to `HOPPER_STATE.logs/`. `watch` also writes
-  `HOPPER_STATE.status` after every look (each stream's head, each scheduled job's next
-  time, the code it runs, why a look failed) and keeps its own log,
-  `HOPPER_STATE.logs/hopper.log`, with a traceback if it crashes. Times in these files (and
-  in snapshot metadata) are RFC 3339 in local time with its offset,
-  `2026-10-28T12:14:09+01:00`.
-- **Fails closed:** a failed step stops the chain; a failed or interrupted commit is not
-  retried automatically (`release <stream> <commit>` retries it by hand). The next commit is handled
-  normally.
-- **First start:** for a stream with no records, the current head is recorded as
-  `adopted`, not built: it is assumed to be released already (at cutover, TeamCity's last
-  release).
-- **Release builds started by hand** (or by anything else) make hopper skip that look and
-  try again next time, rather than record a clash as a failure.
-- **Housekeeping:** after a successful publish, `daemon/releases.py cleanup` (in the same log); its
-  failure is logged and doesn't change the release's status.
-- **Stopping:** SIGTERM or Ctrl-C stops the running step and records the commit as
-  `interrupted`; an entry still `running` when hopper starts (after a crash or kill) is
-  recorded as `interrupted` too. One hopper per state file.
-
-### On mikoshi (`host/mikoshi/hopper@.service`)
-
-hopper runs on mikoshi, which stays on, as the `hopper` user (home `/srv/hopper`, the
-checkout in `~/hopper`, its secrets in `~/.config/multimc-deploy/`, rootless podman,
-not in the docker group). Its only access to deth001 is the key tied to `hopper-ssh`.
-systemd only keeps `daemon/hopper.py watch` running, as a user unit with one instance per
-settings file: `hopper@files2` (`config/files2.env`), at cutover `hopper@production`
-(`config/production.env`). The unit sets `CONTAINER_ENGINE=podman` and a low CPU and IO priority
-(the containers inherit it), stops hopper with SIGTERM alone so it can stop its own step,
-and restarts it if it crashes. Nothing else lives outside the code.
-
-    systemctl --user link ~/hopper/host/mikoshi/hopper@.service
-    systemctl --user enable --now hopper@files2
-    journalctl _SYSTEMD_USER_UNIT=hopper@files2.service -f    # as an admin
-    daemon/hopper.py --config config/files2.env status
-
-hopper's output goes to the system journal, readable by an admin but not by hopper (a
-system user's uid gets no journal of its own); each run's output is also in
-`HOPPER_STATE.logs/`.
-
-Scripts run by hand as `hopper` need `CONTAINER_ENGINE=podman` too (hopper has no access to
-docker, on purpose); its `~/.bash_profile` exports it. `daemon/hopper.py release` takes the same
-state lock as the service, so stop the service first
-(`systemctl --user stop hopper@production`, then `start` again).
-
-The unit is linked from the checkout, so after a `git pull` that changes it:
+Everything runs on the build server, which stays on, as the `hopper` user (home `/srv/hopper`, the
+checkout in `~/hopper`, its secrets in `~/.config/multimc-deploy/`, rootless podman, not in
+the docker group). Its only access to the files server is the key tied to `hopper-ssh`. Laminar
+(below) runs the releases and meta; `daemon/trigger.py` starts them. Both are systemd user
+units linked from the checkout (`host/builder/`), so after a `git pull` that changes one:
 `systemctl --user daemon-reload` and a restart. A `git pull` that changes the scripts takes
-effect at hopper's next step (each step is a new process); `daemon/hopper.py` itself, after a
-restart.
+effect at the next run. The user has lingering, so the units run without a login.
 
-Verified 2026-10-24 on files2: first start adopted the head; a new commit went through all
-steps (build 5006, published with the cache purge, 2.5 min); a commit that doesn't exist was
-recorded as failed with nothing deployed; a look while a release build ran was skipped
-without a record; a second hopper was refused; SIGTERM mid-build stopped everything within
-a second and recorded the commit as interrupted.
+Their output goes to the system journal, readable by an admin but not by hopper (a system
+user's uid gets no journal of its own); what matters is in files hopper can read too:
+Laminar's logs, `~/laminar/trigger.log`.
 
-Verified 2026-10-25 on files2, translations stream: the first look adopted the head; a test
-commit changing one German string (in a local scratch repo) was released in 8 s, its publish
-list just `de.qm` and `index_v2.json`; then the real `master` (1e543c81, the new
-`release.py`) in 9 s, after which files2's `de.qm` was byte-identical to production's, built
-by TeamCity's old pipeline.
+Scripts run by hand as `hopper` need `CONTAINER_ENGINE=podman` (hopper has no access to
+docker, on purpose); its `~/.bash_profile` exports it, and `LAMINAR_HOST` for `laminarc`.
+They take the same locks as Laminar's jobs: one started by hand while a job holds the lock
+stops with an error (or waits, with `HOPPER_LOCK_WAIT` set), and the job waits for it the
+same way.
+
+Until 2026-10-30, hopper's own daemon (`daemon/hopper.py`, the `hopper@<setup>` units) did
+what Laminar and the trigger do now: it watched the branches and the Patreon schedule and
+ran the same scripts in the same order. Its records stay in `$STATE` (`hopper.json`,
+`hopper-files2.json`, each with `.logs/`), no longer written; the code is in git history.
 
 ### Overview (`daemon/overview.py`, `daemon/top.py`)
 
-    ssh -t hopper@mikoshi hopper/daemon/top.py
+    ssh -t hopper@<build server> hopper/daemon/top.py
     daemon/overview.py [--json]
 
-`daemon/top.py` shows, live and like top, every setup (each settings file but
-`defaults.env`): whether its hopper runs, its service, restarts and last look, each job's
-last run and next scheduled time, what's live (each update channel's newest builds, the
-website on test and production, the last published snapshot), Laminar's jobs (meta among
-them: what starts each, its last run, what's running, the next scheduled time; their logs
-are in Laminar's web UI), and all runs, newest first; Enter opens a run's log (following it while it runs), `h`
-the setup's `hopper.log`. SSH is its access control and transport: nothing listens on a
-port, and whoever may log in as `hopper` may look. It only reads: files, `systemctl --user
-show`, Laminar's database (read only) and `laminarc show-running`, and `/proc/locks` for the locks (it never takes one, so it can't get in a build's
-way). `daemon/overview.py` gathers the same, as text or `--json` for other views (a native client
-over an SSH exec channel, a push to an external page). Actions (retry, release, promote)
-will be requests the running hopper picks up, not commands the view runs.
+`daemon/top.py` shows, live and like top, what each setup (each settings file but
+`defaults.env`) has live (each update channel's newest builds, the website on test and
+production, the last published snapshot), Laminar's jobs (what starts each, its last run,
+what's running, the next scheduled time), and Laminar's runs, newest first; Enter opens a
+run's log, from Laminar's web server (`LAMINAR_HTTP`, default `http://127.0.0.1:8091`),
+following it while it runs. SSH is its access control and transport: nothing new listens on
+a port, and whoever may log in as `hopper` may look. It only reads: files, `systemctl
+--user show`, Laminar's database (read only), its logs and `laminarc show-running`, and
+`/proc/locks` for the locks (it never takes one, so it can't get in a build's way).
+`daemon/overview.py` gathers the same, as text or `--json` for other views. Tagging,
+promotion and retention beyond the cleanup are meant to come as commands next to the
+scripts, working on the same files tree and plain state files, that jobs or people run
+(see `UPDATER.md` in the MultiMC project directory).
 
 
-## Laminar (`host/mikoshi/laminar.service`, an experiment)
+## Laminar (`host/builder/laminar.service`)
 
 [Laminar](https://laminar.ohwg.net), a small CI server, runs jobs as the `hopper` user from
 `~/laminar` (`LAMINAR_HOME`): Laminar's own files (`archive/`, `run/`, `laminar.sqlite`), and
@@ -658,17 +593,17 @@ watches the directory it found when it started. Its jobs so far:
 builds `laminard` and `laminarc` in a container (`laminar/Containerfile`, podman) so that no
 system update can break them: Cap'n Proto (built there from its release, static), SQLite,
 zlib, libstdc++ and libgcc are linked in, and the only library left to load is glibc (built
-on Debian 13, they need 2.38 or newer; mikoshi has 2.44). Every input is pinned: the base image by digest, Cap'n
+on Debian 13, they need 2.38 or newer; the build server has 2.44). Every input is pinned: the base image by digest, Cap'n
 Proto by checksum, Laminar by commit (1.4-3-g9d928cca; its CMake downloads its web UI's
 scripts, checked by MD5). `build.sh` refuses binaries that load anything but glibc.
 
-### Starting jobs (`daemon/trigger.py`, `host/mikoshi/trigger.service`)
+### Starting jobs (`daemon/trigger.py`, `host/builder/trigger.service`)
 
     daemon/trigger.py watch [--once]
     daemon/trigger.py status
 
 Laminar doesn't watch repositories or keep schedules. `daemon/trigger.py` does, with
-hopper's own rules, and only queues jobs. A job says what starts it in its
+the rules hopper's daemon had, and only queues jobs. A job says what starts it in its
 `cfg/jobs/<job>.conf` (Laminar only reads the keys it knows from there):
 
     TRIGGER=git https://github.com/MultiMC/Website.git master    # laminarc queue website-production COMMIT=<commit>
@@ -686,29 +621,26 @@ hand: `laminarc queue <job>`.
 ### The meta pipeline (Laminar's job `meta`)
 
 meta.multimc.org's pipeline (the MultiMC/meta repo: `update.sh` and its Python scripts)
-moved from deth001 to mikoshi on 2026-10-26 as it was: same checkout, caches, upstream and
+moved from the files server to the build server on 2026-10-26 as it was: same checkout, caches, upstream and
 output repos and `config/` (deploy keys, Discord webhooks), in `~/meta` of the `hopper`
 user. Since 2026-10-29 it's Laminar's job `meta` (`cfg/jobs/meta.run`: `update.sh`, then
-the Forge maven copy, `~/forgemaven` as written by `enumerateForge.py`, to deth001's
+the Forge maven copy, `~/forgemaven` as written by `enumerateForge.py`, to the files server's
 `/home/http/forgemaven`), started hourly by the trigger (`TRIGGER=cron 0 * * * *`); each
 run's commits of meta's `upstream/` and `multimc/` repos go to its archive. Its Python
-libraries are mikoshi's system packages (as on deth001). Only `config/config_local.sh`
-differs from deth001's: `update.sh` deploys to `root@deth001.multimc.org:/home/http/meta/v1/`
+libraries are the build server's system packages (as on the files server). Only `config/config_local.sh`
+differs from the files server's: `update.sh` deploys to `root@deth001.multimc.org:/home/http/meta/v1/`
 through `hopper-ssh`, and `DEPLOY_FORGE_MAVEN=false`. Changes to meta itself (a container
 with fixed tool versions, ...) come later.
 
-### hopper's releases (Laminar's jobs `<stream>-<setup>`)
+### The releases (Laminar's jobs `<stream>-<setup>`)
 
-Since 2026-10-30, everything hopper released is Laminar's: a
-settings file hands a stream or scheduled job over with `HOPPER_HANDED_OFF` (hopper then
-leaves it alone and shows it as off), and Laminar's job `<stream>-<setup>` releases it with
-`config/<setup>.env`: `launcher-production` and `launcher-files2` for each new commit of
+Since 2026-10-30 (before that, hopper's own daemon), Laminar's job `<stream>-<setup>` releases
+a stream with `config/<setup>.env`: `launcher-production` and `launcher-files2` for each new commit of
 the Launcher repo's `develop`, `translations-production` and `translations-files2` for each new commit
 of the Translations repo's `master`, `website-production` for each new commit of the Website
 repo's `master` (it replaced the build-only `website` job, whose runs stay in Laminar's
-history), `patrons-production` every day at noon (hopper's `PATRONS_SCHEDULE`). Their `.run`
-are links to one script, `cfg/scripts/release`, which runs the same scripts hopper ran, in
-the same order:
+history), `patrons-production` every day at noon. Their `.run` are links to one script,
+`cfg/scripts/release`, which runs the same scripts the daemon ran, in the same order:
 
 - launcher: `launcher/release-build.py`, `files/deploy.py`, `files/publish.py`
 - translations: `translations/build.py`, `files/deploy.py`, `files/publish.py`
@@ -719,8 +651,8 @@ the same order:
 then `daemon/releases.py cleanup` (a failure of that is only logged). The release stays in
 `RELEASES_DIR`, under its cleanup; the archive gets its path, `manifest.json` and its build
 logs (the launcher's per platform, with its compatibility reports). The launcher's build
-number still comes from `release-build.py` and the setup's `BUILD_COUNTER`, as with hopper:
-the counter moved with the job, it isn't shared. `laminarc queue translations-production COMMIT=<sha>` releases a given commit.
+number comes from `release-build.py` and the setup's `BUILD_COUNTER`, as it did under the
+daemon: the counter moved with the job, nothing else uses it. `laminarc queue translations-production COMMIT=<sha>` releases a given commit.
 
 hopper's scripts stop at once when a lock they need is held (another release build, the
 files tree). Nothing retries a Laminar job, so the job sets `HOPPER_LOCK_WAIT=3600`: they
@@ -742,7 +674,8 @@ clean up), the build containers included; the build number stays used and the ha
 release stays in `RELEASES_DIR` until its cleanup. The next run (5022) was fine.
 The first real one, `launcher-files2:1` (2026-10-30, `48bced51`, build 5020, with the
 bucket and the purge), waited 3 min for the release lock held by hopper@production's build
-of the same commit (4286), then took 3.5 min; production's launcher followed it to Laminar.
+of the same commit (4286), then took 3.5 min; production's launcher followed it to Laminar,
+and the daemon was retired.
 
 ## Requirements
 

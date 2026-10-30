@@ -5,7 +5,8 @@
     website/publish.py [--config FILE] [--dry-run] [--no-purge] --production [release]
 
 Test: the release (default: the newest releasable website release in RELEASES_DIR) goes to
-WEBSITE_TEST_TARGET. hopper does this for every new commit on WEBSITE_BRANCH.
+WEBSITE_TEST_TARGET. Laminar's job website-production does this for every new commit on
+WEBSITE_BRANCH.
 
 --production: the release on test (default; RELEASES_DIR/website-test.live names it) goes to
 WEBSITE_TARGET, so production gets exactly the files checked on test. Run by hand.

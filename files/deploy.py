@@ -10,7 +10,7 @@ restores them; a tree that isn't a btrfs subvolume is refused). Nothing is publi
 the tree stays local: files/publish.py publishes everything that changed since the last publish.
 Refuses a release that isn't releasable.
 
-Launcher builds: does what TeamCity's deploy steps did on deth001, with the same repoman
+Launcher builds: does what TeamCity's deploy steps did on the files server, with the same repoman
 (IMAGE_DEPLOYER), as the calling user, without network: for each platform,
 
     repoman -c update push <platform> <branch> <build> <version> <bundle>/

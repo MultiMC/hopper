@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """hopper-top: the overview (daemon/overview.py) live in the terminal, like top; read-only.
 
-    ssh -t hopper@mikoshi hopper/daemon/top.py
+    ssh -t hopper@<build server> hopper/daemon/top.py
 
 SSH is the access control and the transport: whoever may log in as hopper may look.
 It refreshes every REFRESH seconds. Keys:
 
-  overview   up/down, PgUp/PgDn, Home/End  select a run
-             Enter    that run's log
-             h        that run's setup's own log (hopper.log: its looks, and crashes)
+  overview   up/down, PgUp/PgDn, Home/End  select a run (Laminar's)
+             Enter    that run's log (from Laminar's web server, as it grows)
              r        refresh now
              q        quit
   log        up/down, PgUp/PgDn/space, Home/g, left/right   scroll
@@ -17,14 +16,16 @@ It refreshes every REFRESH seconds. Keys:
              / n N    search (case-insensitive), next, previous
              q, Esc   back
 
-Nothing here changes anything; actions will be requests the running hopper picks up.
+Nothing here changes anything.
 """
 
 import curses
 import locale
 import os
 import sys
+import threading
 import time
+import urllib.request
 from pathlib import Path
 
 # The shared code is in lib/, next to this directory
@@ -37,7 +38,7 @@ REFRESH = 2.0
 LOG_REFRESH = 1.0
 
 GREEN, RED, YELLOW, CYAN = 1, 2, 3, 4
-STATUS_COLORS = {"published": GREEN, "failed": RED, "interrupted": RED, "running": YELLOW}
+RESULT_COLORS = {"success": GREEN, "failed": RED, "aborted": RED, "running": YELLOW}
 
 
 def main():
@@ -88,7 +89,7 @@ def color(number, bold=False):
 
 
 def age(text):
-    """Seconds since a time as hopper writes them."""
+    """Seconds since a time as common.timestamp writes them."""
     return time.time() - common.parse_time(text).timestamp() if text else None
 
 
@@ -122,8 +123,7 @@ class Top:
         while True:
             if data is None or time.time() - loaded >= REFRESH:
                 data, loaded = overview.gather(), time.time()
-            runs = [(s, r) for s in data["setups"] for r in s["runs"]]
-            runs.sort(key=lambda item: common.parse_time(item[1]["time"]), reverse=True)
+            runs = data["laminar"]["runs"] if data["laminar"] else []
             self.selected = clamp(self.selected, 0, len(runs) - 1)
             self.draw(data, runs)
             key = window.getch()
@@ -132,16 +132,8 @@ class Top:
             if key == ord("r"):
                 data = None
             elif key in (curses.KEY_ENTER, 10, 13) and runs:
-                setup, run = runs[self.selected]
-                LogView(self.screen, run.get("log"), "%s %s %s" % (setup["name"], run["job"], run["label"]),
-                        follow=run["status"] == "running").run()
-                data = None
-            elif key == ord("h"):
-                if runs:
-                    setup = runs[self.selected][0]
-                else:
-                    setup = data["setups"][0]
-                LogView(self.screen, setup["log"], "%s hopper.log" % setup["name"], follow=True).run()
+                run = runs[self.selected]
+                LogView(self.screen, run["log"], run["run"], follow=run["result"] == "running").run()
                 data = None
             else:
                 self.move(key, len(runs))
@@ -175,11 +167,11 @@ class Top:
         y = 2
         for setup in data["setups"]:
             y = self.draw_setup(y, setup, data)
-            y += 1
+        y += 1
         if data["laminar"]:
             y = self.draw_laminar(y, data["laminar"])
             y += 1
-        screen.line(y, [("runs", curses.A_BOLD), ("  (Enter: log, h: hopper.log)", curses.A_DIM)])
+        screen.line(y, [("runs", curses.A_BOLD), ("  (Laminar's; Enter: log)", curses.A_DIM)])
         y += 1
         self.page = max(1, height - y - 1)
         # scroll just enough to keep the selected row on screen
@@ -187,82 +179,35 @@ class Top:
             self.offset = self.selected
         if self.selected >= self.offset + self.page:
             self.offset = self.selected - self.page + 1
-        for i, (setup, run) in enumerate(runs[self.offset:self.offset + self.page]):
+        for i, run in enumerate(runs[self.offset:self.offset + self.page]):
             if self.offset + i == self.selected:
                 mark = curses.A_REVERSE
             else:
                 mark = 0
-            screen.line(y + i, self.run_pieces(setup, run), fill=mark)
-        screen.line(height - 1, [(" up/down select  Enter log  h hopper.log  r refresh  q quit", curses.A_DIM)])
+            screen.line(y + i, [(" ", 0)] + self.result_pieces(run, run["run"]) + [("  %s" % (run.get("reason") or ""), curses.A_DIM)],
+                        fill=mark)
+        screen.line(height - 1, [(" up/down select  Enter log  r refresh  q quit", curses.A_DIM)])
         window.refresh()
 
     def draw_setup(self, y, setup, data):
-        screen = self.screen
-        service, status = setup["service"], setup["status"] or {}
-        enabled = service.get("UnitFileState") in ("enabled", "linked-runtime", "enabled-runtime")
+        """A setup: what it has live"""
         pieces = [("%-11s" % setup["name"], curses.A_BOLD)]
-        running = [r for r in setup["runs"] if r["status"] == "running"]
-        if setup["running"]:
-            pieces.append(("hopper running", color(GREEN)))
-            if service.get("ActiveState") == "active":
-                pieces.append((" since %s" % overview.short_time(service.get("ActiveEnterTimestamp")), 0))
-            if service.get("NRestarts"):
-                pieces.append(("  %d restarts (h: hopper.log)" % service["NRestarts"], color(YELLOW, True)))
-            if running:
-                r = running[0]
-                pieces.append(("  releasing %s %s: %s, %s" % (r["job"], r["label"], r.get("step"),
-                                                               overview.duration(r["seconds"])), color(YELLOW, True)))
-            elif status.get("looked") and status.get("pid") == setup["running"]:
-                late = age(status["looked"])
-                stale = late > 3 * status.get("interval", 60)
-                pieces.append(("  looked %ds ago" % late, color(RED, True) if stale else curses.A_DIM))
-            if status.get("problem"):
-                pieces.append(("  last look failed: %s" % status["problem"], color(RED, True)))
-            if status.get("code") and data["code"] and status["code"] != data["code"]:
-                pieces.append(("  runs %s, checkout is %s: restart it" % (status["code"], data["code"]), color(YELLOW)))
-        elif enabled:
-            pieces.append(("hopper NOT running: service %s" % service.get("ActiveState"), color(RED, True)))
-        else:
-            pieces.append(("off (service %s, %s)" % (service.get("ActiveState"), service.get("UnitFileState")), curses.A_DIM))
-        screen.line(y, pieces)
-        y += 1
         if setup["error"]:
-            screen.line(y, [("  can't read its files: %s" % setup["error"], color(RED, True))])
-            return y + 1
-        for job in setup["jobs"]:
-            screen.line(y, self.job_pieces(job))
-            y += 1
-        screen.line(y, self.live_pieces(setup["live"]))
+            pieces.append(("can't read its files: %s" % setup["error"], color(RED, True)))
+        else:
+            pieces += self.live_pieces(setup["live"])
+        self.screen.line(y, pieces)
         return y + 1
 
-    def job_pieces(self, job):
-        source = job["source"].split()[-1] if job["kind"] == "stream" else job["source"]
-        if not job["enabled"]:
-            return [("  %-13s %-12s off%s" % (job["name"], source, ", handed to Laminar" if "Laminar" in (job.get("off") or "") else ""),
-                     curses.A_DIM)]
-        pieces = [("  %-13s %-12s " % (job["name"], source), 0)]
-        last = job["last"]
-        if last:
-            pieces += self.result_pieces(last)
-        seen = job["seen"] or {}
-        if job.get("head_handled") is False:
-            pieces.append(("  new commit %s" % seen["head"][:10], color(YELLOW, True)))
-        if seen.get("next"):
-            pieces.append(("  next %s" % seen["next"][5:], curses.A_DIM))
-        published = job["last_published"]
-        if published and last and published["time"] != last["time"]:
-            pieces.append(("  last published %s" % overview.short_time(published["time"]), color(YELLOW)))
-        return pieces
-
-    def result_pieces(self, run):
-        what = ("#%s " % run["build"] if run.get("build") else "") + run["label"]
-        status = run["status"] + (" (%s)" % run["step"] if run.get("step") and run["status"] != "published" else "")
-        return [("%-22s" % what, 0), ("%-22s" % status, color(STATUS_COLORS.get(run["status"], 0), run["status"] != "published")
-                                     if run["status"] in STATUS_COLORS else curses.A_DIM),
-                ("%s  %7s" % (overview.short_time(run["time"]), overview.duration(run["seconds"])), 0)]
+    def result_pieces(self, run, what):
+        """A Laminar run: what, its result, when and how long"""
+        result = run["result"]
+        return [("%-30s" % what, 0),
+                ("%-9s" % result, color(RESULT_COLORS[result], result != "success") if result in RESULT_COLORS else curses.A_DIM),
+                ("%s  %7s" % (overview.short_time(run.get("started")), overview.duration(run.get("seconds"))), 0)]
 
     def live_pieces(self, live):
-        pieces = [("  %-13s " % "live", curses.A_DIM)]
+        pieces = []
         for channel, versions in sorted(live["channels"].items()):
             ids = sorted(versions, key=lambda v: int(v) if v.isdigit() else 0, reverse=True)
             pieces.append(("%s %s  " % (channel, " ".join("%s%s" % (v, "x%d" % len(versions[v]) if len(versions[v]) > 1 else "")
@@ -301,12 +246,10 @@ class Top:
     def laminar_job_pieces(self, job):
         trigger = job["trigger"] or ""
         source = trigger.split()[-1] if trigger and not trigger.startswith("cron ") else trigger[5:] or "by hand"
-        pieces = [("  %-13s %-12s " % (job["name"], source), 0 if job["trigger"] else curses.A_DIM)]
+        pieces = [("  %-23s %-12s " % (job["name"], source), 0 if job["trigger"] else curses.A_DIM)]
         last = job["last_run"]
         if last:
-            ok = last["result"] == "success"
-            pieces += [("%-22s" % last["run"], 0), ("%-22s" % last["result"], color(GREEN) if ok else color(RED, True)),
-                       ("%s  %7s" % (overview.short_time(last["started"]), overview.duration(last["seconds"])), 0)]
+            pieces += self.result_pieces(last, last["run"])
         if job["running"]:
             pieces.append(("  running %s" % " ".join(job["running"]), color(YELLOW, True)))
         elif job["running"] is None:
@@ -318,33 +261,56 @@ class Top:
             pieces.append(("  next %s" % seen["next"][5:16].replace("T", " "), curses.A_DIM))
         return pieces
 
-    def run_pieces(self, setup, run):
-        return [(" %-11s %-13s " % (setup["name"], run["job"]), 0)] + self.result_pieces(run)
+class LogStream:
+    """A Laminar run's log from its web server: the whole of it for a finished run; for a
+    running one, what it has so far and then more as it comes, until the run ends. Read
+    in a thread; take() hands over what came since the last take()."""
+
+    def __init__(self, url):
+        self.url, self.data, self.error, self.done = url, b"", None, False
+        self.closed = False
+        self.lock = threading.Lock()
+        threading.Thread(target=self.read, daemon=True).start()
+
+    def read(self):
+        try:
+            # no timeout: a running build can be quiet for minutes (a refused connection fails at once)
+            with urllib.request.urlopen(self.url) as response:
+                while not self.closed:
+                    chunk = response.read1(65536)
+                    if not chunk:
+                        break
+                    with self.lock:
+                        self.data += chunk
+        except OSError as e:
+            self.error = "can't read %s: %s" % (self.url, e)
+        self.done = True
+
+    def take(self):
+        with self.lock:
+            data, self.data = self.data, b""
+        return data
+
+    def close(self):
+        self.closed = True  # the thread stops at the next chunk (or the end)
 
 
 class LogView:
-    """A log file, read as it grows."""
+    """A Laminar run's log, read as it grows."""
 
-    def __init__(self, screen, path, title, follow):
-        self.screen, self.path, self.title, self.follow = screen, path, title, follow
-        self.lines, self.read_to, self.partial = [], 0, ""
+    def __init__(self, screen, url, title, follow):
+        self.screen, self.url, self.title, self.follow = screen, url, title, follow
+        self.stream = None
+        self.lines, self.partial = [], ""
         self.top, self.left = 0, 0
         self.search, self.message = None, ""
 
     def load(self):
-        if self.path is None:
-            self.message = "this run has no log: adopted runs were never built, so nothing ran"
-            return
-        try:
-            with open(self.path, "rb") as f:
-                if os.fstat(f.fileno()).st_size < self.read_to:  # replaced or truncated
-                    self.lines, self.read_to, self.partial = [], 0, ""
-                f.seek(self.read_to)
-                data = f.read()
-        except (OSError, TypeError):
-            self.message = "can't read %s" % self.path
-            return
-        self.read_to += len(data)
+        if self.stream is None:
+            self.stream = LogStream(self.url)
+        data = self.stream.take()
+        if self.stream.error:
+            self.message = self.stream.error
         text = self.partial + data.decode("utf-8", "replace")
         parts = text.split("\n")
         self.partial = parts.pop()
@@ -352,6 +318,13 @@ class LogView:
         self.lines += [p.rstrip("\r").rsplit("\r", 1)[-1].expandtabs() for p in parts]
 
     def run(self):
+        try:
+            self.show()
+        finally:
+            if self.stream:
+                self.stream.close()
+
+    def show(self):
         window = self.screen.window
         loaded = 0
         while True:
@@ -431,7 +404,7 @@ class LogView:
         window, screen = self.screen.window, self.screen
         window.erase()
         height, width = screen.size()
-        screen.line(0, [(" %s  " % self.title, curses.A_BOLD), (self.path or "", 0),
+        screen.line(0, [(" %s  " % self.title, curses.A_BOLD), (self.url, 0),
                         ("  %d lines" % len(self.lines), 0), ("  following" if self.follow else "", curses.A_BOLD)],
                     fill=curses.A_REVERSE)
         needle = (self.search or "").lower()

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The only things the automation's SSH key may do on the files host (deth001).
+"""The only things the automation's SSH key may do on the files server.
 
 Installed as /usr/local/bin/hopper-ssh and forced for that key in root's authorized_keys:
 
-    restrict,command="/usr/local/bin/hopper-ssh" ssh-ed25519 AAAA... hopper@mikoshi
+    restrict,command="/usr/local/bin/hopper-ssh" ssh-ed25519 AAAA... hopper@builder
 
 It reads the requested command from SSH_ORIGINAL_COMMAND (or, run directly, from its
 arguments) and allows only:

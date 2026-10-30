@@ -1,8 +1,9 @@
 # laminard and laminarc, built so that a system update can't break them: everything they use
 # is linked in (Cap'n Proto, built here from its release; SQLite, zlib, libstdc++, libgcc)
-# but glibc. Built on Debian 13, they need glibc 2.38 or newer (mikoshi has 2.44). Every
-# input is pinned: the base image by digest, Cap'n Proto by checksum, Laminar by commit
-# (its own CMake downloads its web UI's scripts, checked by MD5). Built by laminar/build.sh.
+# but glibc. Built on Debian 13, they need glibc 2.38 or newer (the build server has
+# 2.44). Every input is pinned: the base image by digest, Cap'n Proto by checksum, Laminar
+# by commit (its own CMake downloads its web UI's scripts, checked by MD5). Built by
+# laminar/build.sh.
 
 FROM docker.io/library/debian:13@sha256:e2914ec98e08b24b4cee3cefcb9f90dfb5519f8d215a2ccf0c9a49b10b6e43de AS build
 
@@ -11,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libsqlite3-dev zlib1g-dev rapidjson-dev libboost-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Cap'n Proto: the version Laminar was tested with on mikoshi (the system's was 1.5.0);
-# static libraries only, without OpenSSL and zlib (Laminar uses neither from it)
+# Cap'n Proto: the version Laminar was tested with on the build server (the system's was
+# 1.5.0); static libraries only, without OpenSSL and zlib (Laminar uses neither from it)
 ARG CAPNP_VERSION=1.5.0
 ARG CAPNP_SHA256=77dbc13ca82d9c87ddb4581dd49559d45b63096433d3dadea08b7f31b360a5ba
 RUN curl -fsSLO https://capnproto.org/capnproto-c++-${CAPNP_VERSION}.tar.gz \

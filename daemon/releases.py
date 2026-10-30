@@ -11,7 +11,7 @@ cleanup  Launcher releases older than the newest RELEASES_KEEP_BUILD_TREES lose 
          packages/, deploy/, logs, compat reports and manifest.json, is enough to deploy it
          again. Of each kind, only the newest RELEASES_KEEP are kept at all. Nothing younger
          than RELEASES_MIN_AGE_HOURS is touched; leftovers of interrupted builds
-         (.preparing-*) are removed once they are older. hopper runs it after each publish.
+         (.preparing-*) are removed once they are older. The release jobs run it after each publish.
          Skipped while a release build is running.
 """
 
