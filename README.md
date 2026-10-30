@@ -647,7 +647,7 @@ itself; only replacing the `~/laminar/cfg` link needs a restart of `laminar.serv
 watches the directory it found when it started. Its jobs so far:
 
 - `meta`: the meta pipeline (below).
-- `translations-production`, `translations-files2`, `website-production`,
+- `launcher-files2`, `translations-production`, `translations-files2`, `website-production`,
   `patrons-production`: hopper's releases (below).
 
 ### Its binaries (`laminar/build.sh`)
@@ -698,16 +698,19 @@ with fixed tool versions, ...) come later.
 
 ### hopper's releases (Laminar's jobs `<stream>-<setup>`)
 
-Since 2026-10-30, hopper's translations, website and Patreon credits are Laminar's: a
+Since 2026-10-30, hopper's translations, website and Patreon credits are Laminar's, and
+files2's launcher: a
 settings file hands a stream or scheduled job over with `HOPPER_HANDED_OFF` (hopper then
 leaves it alone and shows it as off), and Laminar's job `<stream>-<setup>` releases it with
-`config/<setup>.env`: `translations-production` and `translations-files2` for each new commit
+`config/<setup>.env`: `launcher-files2` for each new commit of the Launcher repo's
+`develop`, `translations-production` and `translations-files2` for each new commit
 of the Translations repo's `master`, `website-production` for each new commit of the Website
 repo's `master` (it replaced the build-only `website` job, whose runs stay in Laminar's
 history), `patrons-production` every day at noon (hopper's `PATRONS_SCHEDULE`). Their `.run`
 are links to one script, `cfg/scripts/release`, which runs the same scripts hopper ran, in
 the same order:
 
+- launcher: `launcher/release-build.py`, `files/deploy.py`, `files/publish.py`
 - translations: `translations/build.py`, `files/deploy.py`, `files/publish.py`
 - patrons: `patrons/update.py`, `files/deploy.py`, `files/publish.py`
 - website: `website/build.py`, `website/publish.py` (to test; production is still promoted
@@ -715,7 +718,9 @@ the same order:
 
 then `daemon/releases.py cleanup` (a failure of that is only logged). The release stays in
 `RELEASES_DIR`, under its cleanup; the archive gets its path, `manifest.json` and its build
-log. `laminarc queue translations-production COMMIT=<sha>` releases a given commit.
+logs (the launcher's per platform, with its compatibility reports). The launcher's build
+number still comes from `release-build.py` and the setup's `BUILD_COUNTER`, as with hopper:
+the counter moved with the job, it isn't shared. `laminarc queue translations-production COMMIT=<sha>` releases a given commit.
 
 hopper's scripts stop at once when a lock they need is held (another release build, the
 files tree). Nothing retries a Laminar job, so the job sets `HOPPER_LOCK_WAIT=3600`: they
@@ -728,6 +733,13 @@ first run waited for the release lock held by hand, then built `9a051ca4`; a rel
 `1e543c81` published 2 files to the stand-in live tree, and the head (`d6b1b66a`) put it
 back, identical to files2's. The first release through it was files2's, `bd758fca`
 (2026-10-30, 9 s, with the bucket and the purge).
+
+`launcher-files2` was tested the same way (2026-10-30, its own state: release lock, mirror,
+a copy of files2's build counter and tree): `a93647e8` built as 5020 in 3.5 min, all four
+platforms passed the gate, the deploy and publish put 26 files in the stand-in live tree.
+Aborting a run (`laminarc abort`) kills everything at once (SIGKILL, so the scripts can't
+clean up), the build containers included; the build number stays used and the half-built
+release stays in `RELEASES_DIR` until its cleanup. The next run (5022) was fine.
 
 ## Requirements
 

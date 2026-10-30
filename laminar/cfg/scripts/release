@@ -5,6 +5,7 @@
 # config/files2.env. Each such job's .run is a link to this file. The same scripts as
 # hopper's, in the same order:
 #
+#   launcher      launcher/release-build.py [$COMMIT], files/deploy.py, files/publish.py
 #   translations  translations/build.py [$COMMIT], files/deploy.py, files/publish.py
 #   patrons       patrons/update.py, files/deploy.py, files/publish.py
 #   website       website/build.py [$COMMIT], website/publish.py (to test; production is
@@ -12,7 +13,8 @@
 #
 # then daemon/releases.py cleanup (housekeeping; a failure is only logged). $COMMIT
 # defaults to the head of the branch. The release stays in RELEASES_DIR (its cleanup keeps
-# the newest); its path, manifest.json and build log go to $ARCHIVE.
+# the newest); its path, manifest.json and build logs (the launcher's: one per platform,
+# and its compatibility reports) go to $ARCHIVE.
 #
 #     laminarc queue <job> [COMMIT=<sha>]
 
@@ -27,6 +29,7 @@ cd "$(dirname "$(realpath "$0")")/../../.."
 [[ -f $config ]] || { echo "no settings file $config for job $JOB" >&2; exit 1; }
 
 case $stream in
+    launcher)     build=(launcher/release-build.py --config "$config" ${COMMIT:+"$COMMIT"}) ;;
     translations) build=(translations/build.py --config "$config" ${COMMIT:+"$COMMIT"}) ;;
     website)      build=(website/build.py --config "$config" ${COMMIT:+"$COMMIT"}) ;;
     patrons)      build=(patrons/update.py --config "$config") ;;
@@ -37,8 +40,8 @@ status=0
 release=$("${build[@]}") || status=$?
 if [[ -n $release ]]; then
     echo "$release" > "$ARCHIVE/release"
-    for file in manifest.json release.log hugo.log; do
-        if [[ -f $release/$file ]]; then cp "$release/$file" "$ARCHIVE/"; fi
+    for file in "$release"/{manifest.json,release.log,hugo.log,build-*.log,compat-*.txt}; do
+        if [[ -f $file ]]; then cp "$file" "$ARCHIVE/"; fi
     done
 fi
 if (( status )); then
