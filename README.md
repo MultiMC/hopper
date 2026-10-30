@@ -463,7 +463,7 @@ build at a time, shared with `launcher/release-build.py`. Translations releases 
 
     translations/template.py [--config FILE] [--dry-run] [launcher commit]
 
-Run by hand, as TeamCity's "Update Template" job was. Checks out the Translations repo's
+Laminar's job `template-production` runs it after each production Launcher release (below); TeamCity's "Update Template" job was only run by hand. Checks out the Translations repo's
 `TRANSLATIONS_BRANCH` with the Launcher (default: the head of `LAUNCHER_BRANCH`, with
 submodules) in its `src/`, in `RELEASES_DIR/template-<time>/`; runs the repo's `update.py`
 in `IMAGE_TRANSLATIONS` without network; if `template.pot` changed, commits it ("Update
@@ -585,6 +585,7 @@ watches the directory it found when it started. Its jobs so far:
 - `meta`: the meta pipeline (below).
 - `launcher-production`, `launcher-files2`, `translations-production`, `translations-files2`,
   `website-production`, `patrons-production`: hopper's releases (below).
+- `template-production`: the translations template (below).
 
 ### Its binaries (`laminar/build.sh`)
 
@@ -676,6 +677,22 @@ The first real one, `launcher-files2:1` (2026-10-30, `48bced51`, build 5020, wit
 bucket and the purge), waited 3 min for the release lock held by hopper@production's build
 of the same commit (4286), then took 3.5 min; production's launcher followed it to Laminar,
 and the daemon was retired.
+
+### The template (Laminar's job `template-production`)
+
+`cfg/jobs/template-production.run` runs `translations/template.py` with
+`config/production.env`, then `daemon/releases.py cleanup`. It has no `TRIGGER`:
+`launcher-production`, once it has published, queues it with the commit it released
+(`cfg/scripts/release`; a failure to queue is only logged, the release stands). So the
+template follows what production ships, not every commit. A release that changes no
+translatable string changes nothing (the run says "identical"). There's only the one: the
+template goes to the Translations repo, which every setup builds from, so files2 has none.
+It waits for the release lock like the releases (`HOPPER_LOCK_WAIT=3600`). If Crowdin pushes
+to the Translations branch between the mirror update and the push, the push fails, nothing
+changes and the run fails; the next release tries again, or
+`laminarc queue template-production [COMMIT=<sha>]`. Each run leaves an 87 MB work directory in
+`RELEASES_DIR` (the Launcher checkout with submodules), kept like the releases: the newest
+`RELEASES_KEEP`.
 
 ## Requirements
 

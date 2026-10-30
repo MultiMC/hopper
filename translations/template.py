@@ -15,7 +15,8 @@
    The push fails, changing nothing, if the branch moved meanwhile; run it again.
 
 --dry-run: everything but the push (the commit stays in the work directory).
-One at a time (shares the release lock).
+One at a time (shares the release lock). Laminar's job template-production runs it after each
+production Launcher release.
 """
 
 import argparse

@@ -9,7 +9,9 @@
 #   website       website/build.py [$COMMIT], website/publish.py (to test; production is
 #                 promoted by hand: website/publish.py --production)
 #
-# then daemon/releases.py cleanup (housekeeping; a failure is only logged). $COMMIT
+# then daemon/releases.py cleanup (housekeeping; a failure is only logged). After a
+# published launcher-production, it queues template-production (the translations template)
+# for the same commit; a failure to queue is only logged. $COMMIT
 # defaults to the head of the branch. The release stays in RELEASES_DIR (its cleanup keeps
 # the newest); its path, manifest.json and build logs (the launcher's: one per platform,
 # and its compatibility reports) go to $ARCHIVE.
@@ -52,5 +54,10 @@ if [[ $stream == website ]]; then
 else
     files/deploy.py --config "$config" "$release"
     files/publish.py --config "$config"
+fi
+if [[ $JOB == launcher-production ]]; then
+    # laminarc reaches laminard by LAMINAR_BIND_RPC, from laminar.service's environment
+    LAMINAR_REASON="after $JOB:$RUN" "$LAMINAR_HOME/bin/laminarc" queue template-production ${COMMIT:+"COMMIT=$COMMIT"} \
+        || echo "queueing template-production failed" >&2
 fi
 daemon/releases.py --config "$config" cleanup || echo "the release cleanup failed (housekeeping only)" >&2

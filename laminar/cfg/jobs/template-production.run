@@ -1,0 +1,21 @@
+#!/bin/bash -eu
+# The translations template: translations/template.py updates template.pot in the
+# Translations repo from the Launcher at $COMMIT (default: the head of LAUNCHER_BRANCH) and
+# pushes it if it changed; Crowdin picks it up from there. Then daemon/releases.py cleanup
+# (its work directories, RELEASES_DIR/template-<time>, are under it too; a failure is only
+# logged). launcher-production queues it after each publish, with the commit it released.
+# If the Translations branch moved before the push, the run fails and nothing changes; the
+# next Launcher release tries again, or queue it by hand.
+#
+#     laminarc queue template-production [COMMIT=<sha>]
+
+config=config/${JOB##*-}.env
+# Waits for the release lock instead of stopping (nothing retries a Laminar job)
+export HOPPER_LOCK_WAIT=3600
+
+# This file is in the hopper checkout's laminar/cfg/jobs (~/laminar/cfg is a link to it)
+cd "$(dirname "$(realpath "$0")")/../../.."
+[[ -f $config ]] || { echo "no settings file $config for job $JOB" >&2; exit 1; }
+
+translations/template.py --config "$config" ${COMMIT:+"$COMMIT"}
+daemon/releases.py --config "$config" cleanup || echo "the release cleanup failed (housekeeping only)" >&2
