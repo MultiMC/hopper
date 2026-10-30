@@ -544,7 +544,8 @@ scheduled jobs, with cron-style schedules (`daemon/cron.py`): `patrons` (`patron
 `PATRONS_SCHEDULE`, only where `PATRONS_CONFIG` is set). A scheduled job runs once for the
 most recent scheduled time it hasn't handled: after the machine was off, once, not once
 per missed time. A stream or scheduled job named in `HOPPER_HANDED_OFF` is left to its
-Laminar job instead (see Laminar below), and shows as off. A release whose deploy changed nothing (e.g. a
+Laminar job instead (see Laminar below), and shows as off. Since 2026-10-30 production's and files2's
+settings hand all of them over, so their hoppers run idle until they're retired. A release whose deploy changed nothing (e.g. a
 Translations commit that only updates the template) is published as a no-op. It builds and publishes nothing itself, so every
 step can still be run and inspected by hand. Tagging, promotion, purging and the backend
 for a UI are meant to join it as further commands, working on the same files tree and
@@ -647,8 +648,8 @@ itself; only replacing the `~/laminar/cfg` link needs a restart of `laminar.serv
 watches the directory it found when it started. Its jobs so far:
 
 - `meta`: the meta pipeline (below).
-- `launcher-files2`, `translations-production`, `translations-files2`, `website-production`,
-  `patrons-production`: hopper's releases (below).
+- `launcher-production`, `launcher-files2`, `translations-production`, `translations-files2`,
+  `website-production`, `patrons-production`: hopper's releases (below).
 
 ### Its binaries (`laminar/build.sh`)
 
@@ -698,12 +699,11 @@ with fixed tool versions, ...) come later.
 
 ### hopper's releases (Laminar's jobs `<stream>-<setup>`)
 
-Since 2026-10-30, hopper's translations, website and Patreon credits are Laminar's, and
-files2's launcher: a
+Since 2026-10-30, everything hopper released is Laminar's: a
 settings file hands a stream or scheduled job over with `HOPPER_HANDED_OFF` (hopper then
 leaves it alone and shows it as off), and Laminar's job `<stream>-<setup>` releases it with
-`config/<setup>.env`: `launcher-files2` for each new commit of the Launcher repo's
-`develop`, `translations-production` and `translations-files2` for each new commit
+`config/<setup>.env`: `launcher-production` and `launcher-files2` for each new commit of
+the Launcher repo's `develop`, `translations-production` and `translations-files2` for each new commit
 of the Translations repo's `master`, `website-production` for each new commit of the Website
 repo's `master` (it replaced the build-only `website` job, whose runs stay in Laminar's
 history), `patrons-production` every day at noon (hopper's `PATRONS_SCHEDULE`). Their `.run`
@@ -740,6 +740,9 @@ platforms passed the gate, the deploy and publish put 26 files in the stand-in l
 Aborting a run (`laminarc abort`) kills everything at once (SIGKILL, so the scripts can't
 clean up), the build containers included; the build number stays used and the half-built
 release stays in `RELEASES_DIR` until its cleanup. The next run (5022) was fine.
+The first real one, `launcher-files2:1` (2026-10-30, `48bced51`, build 5020, with the
+bucket and the purge), waited 3 min for the release lock held by hopper@production's build
+of the same commit (4286), then took 3.5 min; production's launcher followed it to Laminar.
 
 ## Requirements
 
