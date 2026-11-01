@@ -17,7 +17,7 @@ directory down and is run from the top of the checkout, e.g.
 | Directory | What |
 |-----------|------|
 | `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing (text or `--json`), `top.py` shows it live in the terminal |
-| `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh`, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/` |
+| `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh`, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
@@ -137,6 +137,48 @@ built from the Toolchains repo's `containers/`), no network, as the calling user
 output at `/out`, `launcher/steps/` at `/build` read-only, all settings plus `PLATFORM` and
 `BUILD_NUMBER` in the environment, command `bash /build/<script>`. The images contain only
 toolchains.
+
+## Working on the Launcher in an IDE (`launcher/dev-run.py`)
+
+    launcher/dev-run.py [--config FILE] <lin64|lin32> <command> [args...]
+    launcher/dev-run.py --qt-path <lin64|lin32>
+
+Your IDE can configure and build in the Linux toolchain image, while it edits, runs and
+debugs on the host. Then the code is compiled against Qt 5.6 and g++ 5 as you work, like
+the releases, and anything newer than Qt 5.6 fails right away instead of at release.
+
+`dev-run.py` runs a command in the platform's image (as you, no network, `HOME=/tmp`) in
+the current directory, with your home directory mounted at the same path. Source and build
+trees, compiler messages and the compile database therefore have the same paths inside and
+outside. `CC`/`CXX` are the image's `gcc-5`/`g++-5`, and `LD_LIBRARY_PATH` has the image's
+Qt, so the tests run in the container. The image's Qt (`/opt/qt56`) is copied to
+`$STATE/dev/<platform>/qt56` on first use, and again whenever the image changes, so the IDE's
+code model sees the same Qt 5.6 headers; `--qt-path` prints where it is.
+
+`launcher/dev/lin64-cmake` and `launcher/dev/lin64-make` are what the IDE runs instead of
+`cmake` and `make`. CMake also runs the make program itself (`CMAKE_MAKE_PROGRAM`), from
+inside the container; the wrappers see `HOPPER_DEV_CONTAINER` there and run the real one.
+
+Configure the build directory (inside your home directory) with these CMake arguments,
+`<qt>` being what `--qt-path` prints:
+
+    -DCMAKE_PREFIX_PATH=<qt> -DCMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES=<qt>/lib -DLauncher_LAYOUT=lin-nodeps
+
+The second one keeps the Qt copy out of the binaries' RPATH: run on the host, the Launcher
+uses the host's Qt 5 (as the releases do), not the copy, which needs Ubuntu 14.04's
+libraries.
+
+In KDevelop (Project → Open Configuration):
+
+- **CMake:** add a build directory with *CMake Executable* `<hopper>/launcher/dev/lin64-cmake`,
+  *Runtime* Host System, *Generator* Unix Makefiles (the images have no Ninja), and the
+  arguments above as *Extra Arguments*.
+- **Make:** *Make Binary* `<hopper>/launcher/dev/lin64-make`. This is set for the whole
+  project, not per build directory.
+
+KDevelop's own Docker runtime isn't used: it reads the image's files through Docker's
+`GraphDriver.MergedDir`, which Docker's containerd image store doesn't provide. With CMake
+3.10 KDevelop imports the project from `compile_commands.json`.
 
 ## Releases
 

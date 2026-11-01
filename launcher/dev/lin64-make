@@ -1,0 +1,6 @@
+#!/bin/bash
+# make in the lin64 toolchain container, for an IDE (see ../dev-run.py).
+# CMake also runs it from inside the container (CMAKE_MAKE_PROGRAM, CMAKE_COMMAND): there,
+# the real one.
+if [ -n "${HOPPER_DEV_CONTAINER:-}" ]; then exec make "$@"; fi
+exec "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/../dev-run.py" lin64 make "$@"
