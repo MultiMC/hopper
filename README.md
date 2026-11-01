@@ -23,9 +23,10 @@ directory down and is run from the top of the checkout, e.g.
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
 | `files/` | The files tree (files.multimc.org), shared by the Launcher, translations and Patreon releases: `deploy.py` deploys a release into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
 | `updater/` | The new updater's tree (the Design repo's `UpdaterFormats.md`): `validate.py` checks a document or a whole tree against the format; `test_formats.py` its tests |
+| `keys/` | The new updater's signing keys, one script per step of the offline key ceremony: `make-key.py` makes a key pair, `write-keys.py` writes a keys document, `sign.py` signs a document, `verify.py` checks keys documents and signed documents; `test_keys.py` their tests |
 | `laminar/` | Laminar, which runs the jobs: `cfg/`, its config (`jobs/<job>.run` and `.conf`, `contexts/`), linked as `~/laminar/cfg`; `build.sh` and `Containerfile` build its binaries, linked against nothing but glibc |
-| `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree; `updater_formats.py`, the new updater's formats: checking, signing |
-| `config/` | The settings: `defaults.env` (every setting, with its default), `production.env` (none: the defaults as they are; there so every setup has a name, for Laminar's jobs `<stream>-<setup>`), `files2.env` (the files2 test system) |
+| `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree; `updater_formats.py`, the new updater's formats: checking, signing, the keys chain |
+| `config/` | The settings: `defaults.env` (every setting, with its default), `production.env` (none: the defaults as they are; there so every setup has a name, for Laminar's jobs `<stream>-<setup>`), `files2.env` (the files2 test system); `keys/<setup>/`, each setup's signed keys documents (public keys only) |
 | `host/` | What is installed on other machines, by machine. `builder/`: the build server's systemd user units, `laminar.service` (Laminar) and `trigger.service` (`daemon/trigger.py`, which starts Laminar's jobs). `fileserver/`: `hopper-ssh`, the only things hopper's SSH key may do on the files server |
 
 ### State
@@ -554,6 +555,68 @@ untrusted signers, keys rotation, expiry, every structural rule of the spec and 
 line are covered by the tests. Signatures made here have not yet been checked with
 Monocypher; that comes with the Launcher's own tests.
 
+## The updater's keys (`keys/`)
+
+    keys/make-key.py <name>
+    keys/write-keys.py <dir>/<version>.json --expires TIME --root KEY... --online KEY... [--previous FILE]
+    keys/sign.py <file> <private key>... [--name PATH]
+    keys/verify.py keys <N>.json... (--roots KEY... | --known FILE) [--now TIME]
+    keys/verify.py file <file> [--name PATH] (--keys FILE | --key KEY...) [--now TIME]
+
+The trust chain of the new updater (`Updater.md` in the Design repo, "Signed manifests"):
+two offline root keys, pinned in the Launcher, sign a keys document that lists them and the
+online key; the online key, which hopper keeps, signs everything else. One script per step,
+each run on its own, so the root key ceremony can run on an offline machine with a copy of
+this checkout: Python 3.12+ and the `openssl` CLI, nothing else, and only small text files
+in and out. The checks are the validator's (`lib/updater_formats.py`).
+
+- `make-key.py` writes `<name>.pem`, the private key (mode 600, unencrypted: encrypt it for
+  storage, for example with `age -p`), and `<name>.pub`, the public key as 64 hex digits.
+- `write-keys.py` writes a keys document, unsigned. Keys are given as hex or `.pub` files,
+  the version is the number in the file name; with `--previous` it must be the next one.
+- `sign.py` checks a document and adds a line per key to its `.sig`. The root keys sign one
+  at a time, where each one is kept: carry the document and its `.sig` between them. It
+  refuses to add to a `.sig` whose lines no longer verify.
+- `verify.py keys` walks keys documents as a Launcher does: from the pinned root keys
+  (`--roots`, version 1 must list exactly those) or a known document (`--known`), each next
+  version signed by the root keys of the one before, never a lower or repeated version, the
+  last one unexpired. `verify.py file` checks a document against the online keys of a keys
+  document (`--keys`), or against given keys (`--key`, e.g. that the first root key has
+  signed before the document goes to the second).
+
+A new keys document (rotating the online key, or before the current one expires, about two
+years), from the newest one `N.json`, where the root keys are:
+
+    keys/write-keys.py keys/<N+1>.json --previous keys/<N>.json --expires <in two years> \
+        --root root1.pub --root root2.pub --online online2.pub
+    keys/sign.py keys/<N+1>.json root1.pem
+    keys/verify.py keys keys/<N+1>.json --known keys/<N>.json
+
+Each setup's keys documents are in `config/keys/<setup>/`, with their signatures; they hold
+public keys only. Private keys are never in the checkout or in `$STATE`.
+
+Tests, with throwaway keys:
+
+    python3 -m unittest keys/test_keys.py
+
+### files2's test keys
+
+Made 2026-11-01 on the build server as hopper with these scripts: both test root keys and
+the online key are in `~/keys/files2/` there (mode 700, outside the checkout and `$STATE`).
+They are test keys and never reach production; production's root keys come from the
+offline ceremony before the bridge build. `config/keys/files2/1.json` is the first keys
+document (expires 2028-11-01), signed by both test root keys:
+
+| Key | Public key |
+|-----|------------|
+| root1 | `b00524fc7df69bd16e387f7aa16fafb503553acda51575e2f7e62ad6355f545a` |
+| root2 | `a81aaad40718fcb5b0fdf2918dd4a66d7b06db9ffac4a960ae61915952f5d568` |
+| online1 | `6fa7862cf11cdb56e472704b2de2c79aedd2a3557f5a606435548dd0f6f77f07` |
+
+Checked 2026-11-01: `verify.py keys` accepts it from the two root keys, and refuses it with
+its expiry or online key changed (the signatures no longer verify), at its expiry time, from
+a known version 2 or 1 (not newer), and with another key pinned in place of a root key.
+
 ## The files2 test system (`config/files2.env`)
 
 A parallel system set up like production, so the whole path can be exercised without
@@ -836,4 +899,4 @@ changes and the run fails; the next release tries again, or
 ## Requirements
 
 Docker with the toolchain images built or loaded (from the Toolchains repo), git, python3 (3.12+),
-rsync, outbound access to GitHub.
+rsync, outbound access to GitHub; the `openssl` CLI for the new updater's validator and keys.

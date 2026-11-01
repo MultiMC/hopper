@@ -498,6 +498,58 @@ def sign(data, private_key):
     return "%s %s\n" % (public_key(private_key), result.stdout.hex())
 
 
+def read_public_key(arg):
+    """A public key (hex) given as itself or as a file holding it (a .pub file, one line)."""
+    if HEX64.fullmatch(arg):
+        return arg
+    try:
+        text = Path(arg).read_text(encoding="ascii")
+    except (OSError, UnicodeDecodeError) as e:
+        raise Invalid("%s isn't a public key or a file with one: %s" % (arg, e))
+    if not HEX64.fullmatch(text.rstrip("\n")):
+        raise Invalid("%s doesn't hold a public key (64 hex digits on one line)" % arg)
+    return text.rstrip("\n")
+
+
+def verify_keys_chain(known, documents, now, roots=None):
+    """Walk forward through keys documents the way a Launcher does, and return the last one.
+
+    known is the keys document trusted without a signature (a Launcher's floor, or the newest
+    it has stored), or None to start from version 1, which must list exactly the pinned root
+    keys `roots` and be signed by one of them. documents are [(version, data, signature)] in
+    order, the version taken from the file name: each must be the one after the document
+    before it, and is checked against that document's root keys. Only the last has to be
+    unexpired at now."""
+    current = known
+    for version, data, signature in documents:
+        name = "keys/%d.json" % version
+        have = current["version"] if current else 0
+        try:
+            # What a Launcher would fetch decides first, before anything is parsed
+            if version <= have:
+                raise Invalid("version %d isn't newer than the known version %d" % (version, have))
+            if version != have + 1:
+                raise Invalid("the next version after %d is %d, versions are skipped" % (have, have + 1))
+            if len(data) > MAX_DOCUMENT:
+                raise Invalid("too large")
+            if current is None:
+                doc = check_document(name, data)
+                if set(doc["root_keys"]) != set(roots):
+                    raise Invalid("its root keys aren't the pinned root keys")
+                verify(data, signature, trusted_keys(name, doc, None))
+            else:
+                verify(data, signature, trusted_keys(name, None, current))
+                doc = check_document(name, data)
+        except Invalid as e:
+            raise Invalid("%s: %s" % (name, e))
+        current = doc
+    if current is None:
+        raise Invalid("no keys documents")
+    if expires(current) <= now:
+        raise Invalid("keys/%d.json expired at %s" % (current["version"], current["expires"]))
+    return current
+
+
 # --- the tree -----------------------------------------------------------------------------
 
 def trusted_keys(name, doc, keys_doc):
