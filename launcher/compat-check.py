@@ -26,6 +26,19 @@ What a description holds, and what `check` does with it:
   [macho]  osx64*: archs: exactly these; max_minimum_macos; link_prefixes: libraries may
            only come from inside the bundle or these places
 
+`check` also states what a machine needs to run the build, as measured in the binaries:
+`requires` in the --json output, the fields of a variant's `requires` in the new updater's
+build manifest (UpdaterFormats.md in the Design repo):
+  all      os (linux, windows, macos), arch (x86, x86_64, arm64): the binaries' one machine
+  linux    glibc, glibcxx: the highest GLIBC_/GLIBCXX_ symbol versions needed; qt: the
+           highest Qt_5.x symbol version needed (every object built against Qt 5.6 or newer
+           needs qt_version_tag@Qt_5.<minor> of the Qt it was compiled with)
+  windows  os_version: the highest PE OS or subsystem version declared
+  macos    os_version: the highest minimum macOS
+A requirement that can't be measured (no such symbol versions, several machines, Qt's
+private API, which ties a build to the exact Qt it was built with) is a problem: the build
+fails the gate.
+
 Exit status 0 = pass, 1 = fail. Needs objdump and llvm-otool on the host.
 """
 
@@ -50,6 +63,9 @@ URL_RE = re.compile(rb"https?://[\x21-\x7e]+?(?=[\x00\"'<>\s]|$)")
 WIN_OURS = re.compile(r"^(MultiMC\.exe|libLauncher_.*|jars/.*)$")
 VERSION_PREFIXES = ("GLIBC_", "GLIBCXX_", "CXXABI_", "GCC_")
 MACHINE_NAMES = {62: "x86_64", 3: "i386", 0x14C: "i386"}
+# The `arch` of the updater's requirements, by ELF/PE machine and by Mach-O architecture
+ARCHS = {62: "x86_64", 3: "x86", 0x14C: "x86", "X86_64": "x86_64", "I386": "x86", "ARM64": "arm64"}
+QT_VERSION_RE = re.compile(r"\bQt_(5\.[0-9]+|5_PRIVATE_API)\b")
 
 # URLs that come from settings: `describe` writes them as ${NAME}...
 URL_SETTINGS = {
@@ -83,9 +99,9 @@ def main():
     values = dict(item.split("=", 1) for item in args.set)
     with open(args.description, "rb") as f:
         expected = tomllib.load(f)
-    problems, facts = check_build(args.platform, files(args.tree), expected, values)
+    problems, facts, requires = check_build(args.platform, files(args.tree), expected, values)
     result = {"platform": args.platform, "description": os.path.basename(args.description),
-              "passed": not problems, "problems": problems, "facts": facts}
+              "passed": not problems, "problems": problems, "facts": facts, "requires": requires}
     if args.json:
         with open(args.json, "w") as f:
             json.dump(result, f, indent=2, sort_keys=True)
@@ -93,6 +109,7 @@ def main():
     for key, value in sorted(facts.items()):
         if key != "files":
             print("    %s: %s" % (key, value))
+    print("    requires: %s" % json.dumps(requires, sort_keys=True))
     for problem in problems:
         print("  ! " + problem)
     return 0 if not problems else 1
@@ -143,18 +160,21 @@ def elf_info(path):
         return None
     machine = struct.unpack_from("<H", head, 18)[0]
     needed = set(re.findall(r"NEEDED\s+(\S+)", run("objdump", "-p", path)))
+    symbols = run("objdump", "-T", path)
     versions = {}
-    for v in re.findall(r"\b((?:%s)[0-9.]+)" % "|".join(VERSION_PREFIXES), run("objdump", "-T", path)):
+    for v in re.findall(r"\b((?:%s)[0-9.]+)" % "|".join(VERSION_PREFIXES), symbols):
         prefix = v[:v.index("_") + 1]
         if prefix not in versions or vtuple(v) > vtuple(versions[prefix]):
             versions[prefix] = v
-    return {"machine": machine, "needed": needed, "versions": versions}
+    return {"machine": machine, "needed": needed, "versions": versions, "qt": set(QT_VERSION_RE.findall(symbols))}
 
 
 def linux_summary(tree):
-    machines, needed, versions = set(), set(), {}
+    """machines, system libraries, highest symbol version per prefix, highest Qt_5.x symbol
+    version (or None) and the binaries that use Qt's private API."""
+    machines, needed, versions, qt, qt_private = set(), set(), {}, None, []
     own = set(os.path.basename(p) for p in tree)
-    for p in tree.values():
+    for rel, p in sorted(tree.items()):
         info = elf_info(p)
         if not info:
             continue
@@ -163,7 +183,12 @@ def linux_summary(tree):
         for prefix, v in info["versions"].items():
             if prefix not in versions or vtuple(v) > vtuple(versions[prefix]):
                 versions[prefix] = v
-    return machines, needed, versions
+        if "5_PRIVATE_API" in info["qt"]:
+            qt_private.append(rel)
+        for v in info["qt"] - {"5_PRIVATE_API"}:
+            if qt is None or vtuple(v) > vtuple(qt):
+                qt = v
+    return machines, needed, versions, qt, qt_private
 
 
 def pe_info(path):
@@ -239,7 +264,9 @@ def main_binary(platform):
 # --- check -------------------------------------------------------------------------------
 
 def check_build(platform, tree, expected, values):
-    problems, facts = [], {"files": len(tree)}
+    """(problems, facts, requires): what is wrong, what was measured, and what a machine needs
+    to run the build (the fields of the updater's `requires`; only those that could be measured)."""
+    problems, facts, requires = [], {"files": len(tree)}, {}
 
     listed = set(expected["files"]["list"])
     for rel in sorted(set(tree) - listed):
@@ -248,21 +275,44 @@ def check_build(platform, tree, expected, values):
         problems.append("missing file: %s" % rel)
 
     if platform in ("lin64", "lin32"):
-        check_linux(tree, expected["elf"], problems, facts)
+        check_linux(tree, expected["elf"], problems, facts, requires)
     elif platform == "win32":
-        check_windows(tree, expected["pe"], problems, facts)
+        check_windows(tree, expected["pe"], problems, facts, requires)
     elif platform.startswith("osx64"):
-        check_macos(tree, expected["macho"], problems, facts)
+        check_macos(tree, expected["macho"], problems, facts, requires)
     else:
         problems.append("unknown platform %s" % platform)
 
     check_urls(tree, expected["urls"], values, problems, facts)
-    return problems, facts
+    return problems, facts, requires
 
 
-def check_linux(tree, expected, problems, facts):
-    machines, needed, versions = linux_summary(tree)
-    facts.update(machines=sorted(machines), system_libs=sorted(needed), max_versions=versions)
+def require_arch(machines, problems, requires):
+    """`arch` from the binaries' machines: exactly one, and one the updater knows."""
+    if len(machines) != 1 or next(iter(machines)) not in ARCHS:
+        problems.append("can't state the CPU architecture: machines %s" % sorted(machines, key=str))
+    else:
+        requires["arch"] = ARCHS[next(iter(machines))]
+
+
+def check_linux(tree, expected, problems, facts, requires):
+    machines, needed, versions, qt, qt_private = linux_summary(tree)
+    facts.update(machines=sorted(machines), system_libs=sorted(needed), max_versions=versions,
+                 max_qt_version="Qt_" + qt if qt else None, qt_private_api=qt_private,
+                 qt_libs=sorted(n for n in needed if n.startswith("libQt")))
+    requires["os"] = "linux"
+    require_arch(machines, problems, requires)
+    for field, prefix in (("glibc", "GLIBC_"), ("glibcxx", "GLIBCXX_")):
+        if prefix in versions:
+            requires[field] = versions[prefix][len(prefix):]
+        else:
+            problems.append("can't state the %s requirement: no %s symbol versions needed" % (field, prefix))
+    if qt_private:
+        problems.append("uses Qt's private API, so it needs exactly the Qt it was built with: %s" % " ".join(qt_private))
+    elif not qt:
+        problems.append("can't state the qt requirement: no Qt_5.x symbol versions needed")
+    else:
+        requires["qt"] = qt
     if machines != {expected["machine"]}:
         problems.append("ELF machine types %s, expected only %d" % (sorted(machines), expected["machine"]))
     for lib in sorted(needed - set(expected["system_libs"])):
@@ -275,10 +325,14 @@ def check_linux(tree, expected, problems, facts):
             problems.append("needs %s, the description allows up to %s" % (v, allowed[prefix]))
 
 
-def check_windows(tree, expected, problems, facts):
+def check_windows(tree, expected, problems, facts, requires):
     machines, os_max, sub_max, imports = windows_summary(tree)
     facts.update(machines=sorted(machines), os_version="%d.%d" % os_max,
                  subsystem_version="%d.%d" % sub_max, system_dlls=sorted(imports))
+    requires["os"] = "windows"
+    require_arch(machines, problems, requires)
+    # Both are declared; Windows refuses to load a binary whose subsystem version is too new
+    requires["os_version"] = "%d.%d" % max(os_max, sub_max)
     if machines != {expected["machine"]}:
         problems.append("PE machine types %s, expected only %d" % (sorted(machines), expected["machine"]))
     if os_max > vtuple(expected["max_os_version"]):
@@ -292,9 +346,15 @@ def check_windows(tree, expected, problems, facts):
             problems.append("bundled file differs from the one described: %s" % rel)
 
 
-def check_macos(tree, expected, problems, facts):
+def check_macos(tree, expected, problems, facts, requires):
     archs, minos, deps = macos_summary(tree)
     facts.update(archs=sorted(archs), minimum_macos=".".join(map(str, minos)))
+    requires["os"] = "macos"
+    require_arch(archs, problems, requires)
+    if minos == (0,):
+        problems.append("can't state the os_version requirement: no binary declares a minimum macOS")
+    else:
+        requires["os_version"] = ".".join(map(str, minos))
     if archs != set(expected["archs"]):
         problems.append("Mach-O architectures %s, expected %s" % (sorted(archs), expected["archs"]))
     if minos > vtuple(expected["max_minimum_macos"]):
@@ -347,7 +407,7 @@ def write_description(platform, tree, source):
            ""]
 
     if platform in ("lin64", "lin32"):
-        machines, needed, versions = linux_summary(tree)
+        machines, needed, versions, _, _ = linux_summary(tree)
         (machine,) = machines
         out += ["[elf]",
                 "machine = %d  # %s" % (machine, MACHINE_NAMES.get(machine, "?")),

@@ -19,7 +19,8 @@ commit        a commit on LAUNCHER_BRANCH (default: its current head)
 Steps: update the local Launcher mirror ($STATE/launcher.git), check out the branch (as a
 branch, so the commit and refs/heads/<branch> get embedded) at the commit, build PLATFORMS
 in parallel in their toolchain containers, package them like TeamCity's deploy did, run
-launcher/compat-check.py against the descriptions in GATE_DESCRIPTIONS, write manifest.json.
+launcher/compat-check.py against the descriptions in GATE_DESCRIPTIONS, write manifest.json
+(with each platform's system requirements, as the gate measured them).
 Exit status 0 only if every build and every compatibility check passed.
 
 The build number (Launcher_VERSION_BUILD) must keep increasing for the updater. Without
@@ -297,6 +298,10 @@ def write_manifest(settings, platforms, branch, commit, build_number, incrementa
             "deploy_archive": "deploy/%s.tar.gz" % p.name,
             "compat_passed": gate_result["passed"],
             "compat_problems": gate_result["problems"],
+            # What a machine needs to run it, measured by the gate (the updater's `requires`),
+            # and the measurements it comes from
+            "requires": gate_result["requires"],
+            "measured": gate_result["facts"],
         }
     manifest["releasable"] = all(passed.values())
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))

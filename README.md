@@ -203,7 +203,9 @@ elsewhere; DIR must be new or empty.
 4. Runs `launcher/compat-check.py` for each platform against its description (`GATE_DESCRIPTIONS`).
 5. Writes `manifest.json`: commit, build number, version name (`major.minor.hotfix` from
    the Launcher's `CMakeLists.txt`), mode, `UPDATER_BASE`, package hashes, gate results,
-   `releasable`.
+   `releasable`; and per platform what a machine needs to run it, as the gate measured it:
+   `requires` (the updater's requirements, below) and `measured` (the gate's measurements:
+   system libraries or DLLs, symbol versions, PE versions, minimum macOS).
 
 Exit status 0 only if everything built and passed the gate. About 2 minutes for a clean
 build on a 32-core machine. Output files belong to the user running it.
@@ -328,6 +330,35 @@ early macOS cross build turned out to lack the updater and notification URLs; ne
 deployed, it would have cut macOS users off from updates.)
 
 Needs `objdump` and `llvm-otool` on the host.
+
+### System requirements
+
+`check` also measures what a machine needs to run the build, for the new updater's build
+manifests (`requires` of a variant, `UpdaterFormats.md` in the Design repo): never written by
+hand, always taken from the binaries. They are `requires` in the `--json` output, and
+`launcher/release-build.py` copies them, with the measurements, into `manifest.json`.
+
+| Field | Measured |
+|-------|----------|
+| `os` | `linux`, `windows` or `macos`, from the platform |
+| `arch` | `x86`, `x86_64` or `arm64`: the one ELF/PE machine or Mach-O architecture of all binaries |
+| `glibc`, `glibcxx` (Linux) | the highest `GLIBC_` and `GLIBCXX_` symbol versions needed (`2.14`, `3.4.21`) |
+| `qt` (Linux) | the highest `Qt_5.x` symbol version needed (`5.6`): every object built against Qt 5.6 or newer references `qt_version_tag` at the version of the Qt it was compiled with, so this is the minimum Qt 5 of the system the Linux builds run on |
+| `os_version` (Windows) | the higher of the PE OS and subsystem versions declared (`4.0`) |
+| `os_version` (macOS) | the highest minimum macOS of the binaries (`10.13`) |
+
+The Qt requirement is a minimum version: Qt 5 keeps its binary compatibility within 5.x,
+and the Launcher can compare a version with the system's Qt. The Qt libraries it needs, by
+soname, are recorded too (`measured.qt_libs`, a part of `system_libs`), for any later use. Fails closed: a requirement that can't be measured
+fails the gate (several machines, no such symbol versions, no minimum macOS), and so does
+Qt's private API (`Qt_5_PRIVATE_API` symbols), with which a build needs exactly the Qt it
+was built with and no minimum describes it.
+
+Verified 2026-11-01: test build 9999 of develop 3613e928 is releasable, its manifest says
+lin64 x86_64, glibc 2.14, GLIBCXX 3.4.21, Qt 5.6; lin32 x86, glibc 2.4, GLIBCXX 3.4.21,
+Qt 5.6; win32 x86, 4.0; macOS x86_64, 10.13. A binary without Qt or GLIBCXX symbol versions,
+one using Qt's private API (the system's Qt Designer), binaries of two machines and a
+macOS tree without Mach-O files each failed with the missing requirement named.
 
 ## Deploying
 
