@@ -88,6 +88,44 @@ has no Docker access, since the `docker` group is equivalent to root.
 
     launcher/run-build.py [--config FILE] <lin64|lin32|win32|osx64-5.15.2> <source dir> <output dir> [build number]
 
+This builds the Launcher exactly like the releases, in the same toolchain image, and
+needs nothing from the build server. To do it yourself you need Linux, Docker (or rootless
+podman: `CONTAINER_ENGINE=podman`), git and Python 3.12 or newer.
+
+1. **The images.** They are published on GitHub's container registry; pull the ones you
+   need by digest and give them the names hopper uses. The digests and names are in the
+   Toolchains repo's [README](https://github.com/MultiMC/Toolchains#published-images), e.g.
+   for lin64:
+
+       docker pull ghcr.io/multimc/toolchains/linux-x64@sha256:7edb202c67b44e33b455fd89ac61d233bde534c5f127c10e6459a2c6c8548d35
+       docker tag ghcr.io/multimc/toolchains/linux-x64@sha256:7edb202c67b44e33b455fd89ac61d233bde534c5f127c10e6459a2c6c8548d35 multimc/toolchains/linux-x64:dev
+
+   lin64 is 2.7 GB, lin32 2.6 GB, win32 7.7 GB. The macOS image can't be published (it
+   contains Apple's SDK); its README in the Toolchains repo says how to build it yourself.
+
+2. **The source**, with submodules, on a branch:
+
+       git clone --recurse-submodules https://github.com/MultiMC/Launcher.git
+       git clone https://github.com/MultiMC/hopper.git
+
+3. **Build**, e.g. lin64 into `out-lin64`:
+
+       hopper/launcher/run-build.py lin64 Launcher out-lin64
+
+   The Launcher is in `out-lin64/install/MultiMC`, the logs next to it. Running it again
+   builds incrementally; `CLEAN=1` starts over. On a 32-core machine a clean lin64 build
+   takes about half a minute, win32 (under Wine) a little over a minute.
+
+4. **Check it** against what the releases must look like (the compatibility gate):
+
+       hopper/launcher/compat-check.py check lin64 out-lin64/install/MultiMC hopper/launcher/expectations/lin64.toml
+
+The build number defaults to 9999, higher than any release so far, so the build's updater
+leaves it alone. The Linux builds run on the system's Qt 5, like the releases; the win32 build
+runs on Windows (XP and newer) or under Wine.
+
+### How it runs
+
 The source must be a git checkout on its branch (not detached), with submodules, so the
 commit and `refs/heads/<branch>` are embedded like in the TeamCity builds. The output
 directory gets `build/` (the build tree; reused unless `CLEAN=1`), `install/` (the bundle:
