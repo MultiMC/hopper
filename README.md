@@ -22,8 +22,9 @@ directory down and is run from the top of the checkout, e.g.
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
 | `files/` | The files tree (files.multimc.org), shared by the Launcher, translations and Patreon releases: `deploy.py` deploys a release into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
+| `updater/` | The new updater's tree (the Design repo's `UpdaterFormats.md`): `validate.py` checks a document or a whole tree against the format; `test_formats.py` its tests |
 | `laminar/` | Laminar, which runs the jobs: `cfg/`, its config (`jobs/<job>.run` and `.conf`, `contexts/`), linked as `~/laminar/cfg`; `build.sh` and `Containerfile` build its binaries, linked against nothing but glibc |
-| `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree |
+| `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree; `updater_formats.py`, the new updater's formats: checking, signing |
 | `config/` | The settings: `defaults.env` (every setting, with its default), `production.env` (none: the defaults as they are; there so every setup has a name, for Laminar's jobs `<stream>-<setup>`), `files2.env` (the files2 test system) |
 | `host/` | What is installed on other machines, by machine. `builder/`: the build server's systemd user units, `laminar.service` (Laminar) and `trigger.service` (`daemon/trigger.py`, which starts Laminar's jobs). `fileserver/`: `hopper-ssh`, the only things hopper's SSH key may do on the files server |
 
@@ -494,6 +495,33 @@ paths and rsync elsewhere are refused.
 
 Overwrites the local tree (`rsync --delete`), so it also undoes local test deploys. The
 first pull is ~3 GB (2 min), later ones only the changes.
+
+## The new updater's formats (`updater/validate.py`)
+
+    updater/validate.py document <file> [--name PATH] (--keys KEYS | --unsigned) [--now TIME]
+    updater/validate.py tree <root> --floor KEYS [--now TIME] [--no-hashes]
+
+Checks the new updater's served tree against its format spec (format 1, `UpdaterFormats.md`
+in the Design repo): strict JSON, every field, the signatures, the keys chain, the tags and
+the content files. It stops at the first problem with a non-zero exit. The checks are in
+`lib/updater_formats.py`, so the new publisher and the tag operations use the same code;
+signing is there too (`sign`, `public_key`), with the `openssl` CLI.
+
+`document` checks one document and its `.sig`; its kind comes from its path in the tree
+(`builds/4312.json`, `tags.json`, `mirrors.json`, `keys/3.json`), or `--name` for a file
+elsewhere. `--keys` is the keys document to trust, `--unsigned` checks a document before it is
+signed. `tree` checks a whole tree, starting from the keys document a Launcher would embed
+(`--floor`).
+
+Tests, with throwaway keys made by `openssl genpkey`:
+
+    python3 -m unittest updater/test_formats.py
+    updater/test_formats.py --sample <dir>    # the tests' sample tree and its keys, to look at
+
+Tested 2026-11-01 (OpenSSL 3.6): the sample tree passes; changed documents and signatures,
+untrusted signers, keys rotation, expiry, every structural rule of the spec and the command
+line are covered by the tests. Signatures made here have not yet been checked with
+Monocypher; that comes with the Launcher's own tests.
 
 ## The files2 test system (`config/files2.env`)
 
