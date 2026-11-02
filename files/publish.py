@@ -48,15 +48,27 @@ log = common.logger("publish")
 
 TRANSLATION_INDEXES = ("translations/index_v2.json", "translations/index")
 
-# Publishing order: whatever an index points at goes before the index.
-STAGES = [
-    ("store files", lambda path: path.startswith("files/")),
-    ("translation files", lambda path: path.startswith("translations/") and path not in TRANSLATION_INDEXES),
-    ("version files", lambda path: re.fullmatch(r"update/[^/]+/[^/]+/\d+\.json", path)),
-    ("indexes", lambda path: path.startswith("update/") or path in TRANSLATION_INDEXES),
-    ("downloads", lambda path: path.startswith("downloads/")),
-    ("other files", lambda path: True),
-]
+
+def publishing_order(settings):
+    """The publishing order: whatever an index points at goes before the index. The new
+    updater's tree (UPDATER_ROOT) goes in its write order: content files, build manifests,
+    keys documents and the mirror list, the tags document last."""
+    updater = settings["UPDATER_ROOT"] + "/" if settings["UPDATER_ROOT"] else None
+
+    def in_updater(*names):
+        return lambda path: bool(updater) and any(path.startswith(updater + name) for name in names)
+    return [
+        ("store files", lambda path: path.startswith("files/")),
+        ("updater content files", in_updater("files/")),
+        ("translation files", lambda path: path.startswith("translations/") and path not in TRANSLATION_INDEXES),
+        ("version files", lambda path: re.fullmatch(r"update/[^/]+/[^/]+/\d+\.json", path)),
+        ("updater build manifests", in_updater("builds/")),
+        ("updater keys and mirrors", in_updater("keys/", "mirrors.json")),
+        ("indexes", lambda path: path.startswith("update/") or path in TRANSLATION_INDEXES),
+        ("updater tags", in_updater("tags.json")),
+        ("downloads", lambda path: path.startswith("downloads/")),
+        ("other files", lambda path: True),
+    ]
 
 
 def main():
@@ -90,7 +102,7 @@ def main():
             log("nothing to publish")
             return
 
-        stages = in_stages(changes)
+        stages = in_stages(changes, publishing_order(settings))
         removed = sorted(path for path, change in changes.items() if change["new"] is None)
         links = links_to(root / "downloads", [p for _, paths in stages for p in paths])
 
@@ -120,14 +132,14 @@ def main():
     log("done" + (", skipped: " + " ".join(skipped) if skipped else ""))
 
 
-def in_stages(changes):
+def in_stages(changes, order):
     """The added and changed files, as [(stage, paths)] in publishing order."""
-    stages = [(name, []) for name, _ in STAGES]
+    found = [(name, []) for name, _ in order]
     for path, change in sorted(changes.items()):
         if change["new"] is not None:
-            index = next(i for i, (_, matches) in enumerate(STAGES) if matches(path))
-            stages[index][1].append(path)
-    return [(name, paths) for name, paths in stages if paths]
+            index = next(i for i, (_, matches) in enumerate(order) if matches(path))
+            found[index][1].append(path)
+    return [(name, paths) for name, paths in found if paths]
 
 
 def links_to(directory, paths):

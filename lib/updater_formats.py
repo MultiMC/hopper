@@ -565,16 +565,48 @@ def trusted_keys(name, doc, keys_doc):
     return set(keys_doc["online_keys"])
 
 
-def _read(root, name):
-    try:
-        return (root / name).read_bytes()
-    except FileNotFoundError:
-        raise Invalid("%s is missing" % name)
+class _Files:
+    """The files of a tree: what is on disk under root, with the overlay ({name: bytes, or the
+    Path of a file holding them}) written over it."""
+
+    def __init__(self, root, overlay):
+        self.root = Path(root)
+        self.overlay = dict(overlay or {})
+
+    def names(self):
+        on_disk = set()
+        if self.root.is_dir():
+            for p in self.root.rglob("*"):
+                name = str(p.relative_to(self.root))
+                if p.is_symlink() and name not in self.overlay:
+                    raise Invalid("%s is a symbolic link" % name)
+                if not p.is_dir():
+                    on_disk.add(name)
+        return sorted(on_disk | set(self.overlay))
+
+    def path(self, name):
+        source = self.overlay.get(name, self.root / name)
+        if isinstance(source, bytes):
+            return None
+        return Path(source)
+
+    def size(self, name):
+        source = self.overlay.get(name)
+        return len(source) if isinstance(source, bytes) else self.path(name).stat().st_size
+
+    def read(self, name):
+        source = self.overlay.get(name)
+        if isinstance(source, bytes):
+            return source
+        try:
+            return self.path(name).read_bytes()
+        except FileNotFoundError:
+            raise Invalid("%s is missing" % name)
 
 
-def _signed(root, name, keys_doc):
-    data = _read(root, name)
-    signature = _read(root, name + ".sig")
+def _signed(files, name, keys_doc):
+    data = files.read(name)
+    signature = files.read(name + ".sig")
     try:
         if len(data) > (MAX_MANIFEST if kind_of(name)[0] == "build" else MAX_DOCUMENT):
             raise Invalid("too large")
@@ -590,10 +622,12 @@ def _signed(root, name, keys_doc):
         raise Invalid("%s: %s" % (name, e))
 
 
-def check_tree(root, floor, now=None, hashes=True):
+def check_tree(root, floor, now=None, hashes=True, overlay=None):
     """Check the tree at root against the keys document a Launcher would embed (its bytes).
-    Returns (summary, warnings); raises Invalid on the first problem."""
-    root = Path(root)
+    With an overlay ({name: bytes, or the Path of a file holding them}), the tree is checked
+    as it would be with those files written, before anything is written. Returns (summary,
+    warnings); raises Invalid on the first problem."""
+    files = _Files(root, overlay)
     now = now or datetime.datetime.now(datetime.timezone.utc)
     warnings = []
     try:
@@ -602,11 +636,8 @@ def check_tree(root, floor, now=None, hashes=True):
         raise Invalid("floor keys document: %s" % e)
 
     # Nothing but the layout
-    names = sorted(str(p.relative_to(root)) for p in root.rglob("*") if not p.is_dir() or p.is_symlink())
     documents, signatures, contents = set(), set(), {}
-    for name in names:
-        if (root / name).is_symlink():
-            raise Invalid("%s is a symbolic link" % name)
+    for name in files.names():
         m = CONTENT_NAME.fullmatch(name)
         if m:
             if m.group(1) != m.group(2)[:2]:
@@ -630,8 +661,8 @@ def check_tree(root, floor, now=None, hashes=True):
         raise Invalid("the keys documents aren't numbered 1 to %d without gaps" % versions[-1])
     keys_doc = None
     for version in versions:
-        keys_doc = _signed(root, "keys/%d.json" % version, keys_doc)
-        if version == floor_doc["version"] and _read(root, "keys/%d.json" % version) != floor:
+        keys_doc = _signed(files, "keys/%d.json" % version, keys_doc)
+        if version == floor_doc["version"] and files.read("keys/%d.json" % version) != floor:
             raise Invalid("keys/%d.json isn't the same as the floor keys document" % version)
     if floor_doc["version"] > keys_doc["version"]:
         raise Invalid("the floor is keys version %d, but the tree only has up to %d" % (floor_doc["version"], keys_doc["version"]))
@@ -640,13 +671,13 @@ def check_tree(root, floor, now=None, hashes=True):
     if expires(keys_doc) - now < EXPIRY_WARNING:
         warnings.append("keys/%d.json expires at %s" % (keys_doc["version"], keys_doc["expires"]))
 
-    tags = _signed(root, "tags.json", keys_doc)
-    mirrors = _signed(root, "mirrors.json", keys_doc)
+    tags = _signed(files, "tags.json", keys_doc)
+    mirrors = _signed(files, "mirrors.json", keys_doc)
     del mirrors
 
     builds = {}
     for name in sorted(n for n in documents if n.startswith("builds/")):
-        builds[kind_of(name)[1]] = _signed(root, name, keys_doc)
+        builds[kind_of(name)[1]] = _signed(files, name, keys_doc)
     if not builds:
         raise Invalid("there are no builds")
 
@@ -668,14 +699,17 @@ def check_tree(root, floor, now=None, hashes=True):
         name = content_path(sha256)
         if sha256 not in contents:
             raise Invalid("%s is missing" % name)
-        path = root / name
-        if path.stat().st_size != size:
-            raise Invalid("%s is %d bytes, the manifests say %d" % (name, path.stat().st_size, size))
+        if files.size(name) != size:
+            raise Invalid("%s is %d bytes, the manifests say %d" % (name, files.size(name), size))
         if hashes:
             digest = hashlib.sha256()
-            with path.open("rb") as f:
-                for chunk in iter(lambda: f.read(1 << 20), b""):
-                    digest.update(chunk)
+            path = files.path(name)
+            if path is None:
+                digest.update(files.read(name))
+            else:
+                with path.open("rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
+                        digest.update(chunk)
             if digest.hexdigest() != sha256:
                 raise Invalid("%s has SHA-256 %s" % (name, digest.hexdigest()))
     unlisted = sorted(set(contents) - set(listed))

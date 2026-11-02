@@ -22,10 +22,10 @@ directory down and is run from the top of the checkout, e.g.
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
 | `files/` | The files tree (files.multimc.org), shared by the Launcher, translations and Patreon releases: `deploy.py` deploys a release into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
-| `updater/` | The new updater's tree (the Design repo's `UpdaterFormats.md`): `validate.py` checks a document or a whole tree against the format; `test_formats.py` its tests |
+| `updater/` | The new updater's tree (the Design repo's `UpdaterFormats.md`): `deploy.py` deploys a Launcher release into it (the new layout's publisher); `validate.py` checks a document or a whole tree against the format; `test_deploy.py` and `test_formats.py` their tests |
 | `keys/` | The new updater's signing keys, one script per step of the offline key ceremony: `make-key.py` makes a key pair, `write-keys.py` writes a keys document, `sign.py` signs a document, `verify.py` checks keys documents and signed documents; `test_keys.py` their tests |
 | `laminar/` | Laminar, which runs the jobs: `cfg/`, its config (`jobs/<job>.run` and `.conf`, `contexts/`), linked as `~/laminar/cfg`; `build.sh` and `Containerfile` build its binaries, linked against nothing but glibc |
-| `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree; `updater_formats.py`, the new updater's formats: checking, signing, the keys chain |
+| `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree; `updater_formats.py`, the new updater's formats: checking, signing, the keys chain; `updater_tree.py`, a setup's new updater tree: new documents signed, the tree checked as it would be, then written in the format's order |
 | `config/` | The settings: `defaults.env` (every setting, with its default), `production.env` (none: the defaults as they are; there so every setup has a name, for Laminar's jobs `<stream>-<setup>`), `files2.env` (the files2 test system); `keys/<setup>/`, each setup's signed keys documents (public keys only) |
 | `host/` | What is installed on other machines, by machine. `builder/`: the build server's systemd user units, `laminar.service` (Laminar) and `trigger.service` (`daemon/trigger.py`, which starts Laminar's jobs). `fileserver/`: `hopper-ssh`, the only things hopper's SSH key may do on the files server |
 
@@ -45,16 +45,17 @@ versioned, so the real system can be debugged in place and any mess undone. How 
 automation measures up:
 
 - **Runnable parts:** each step is its own script (`launcher/run-build.py`, `launcher/compat-check.py`,
-  `launcher/release-build.py`, `files/deploy.py`, `files/publish.py`, `files/pull.py`); `files/publish.py` and
-  `files/pull.py` have `--dry-run`.
+  `launcher/release-build.py`, `files/deploy.py`, `updater/deploy.py`, `files/publish.py`, `files/pull.py`);
+  `updater/deploy.py`, `files/publish.py` and `files/pull.py` have `--dry-run`.
 - **Inspectable results:** a release directory keeps the source, build trees, logs,
   packages, deploy archives, gate reports and `manifest.json`.
 - **Fails closed:** a failed build or test stops the release; the gate refuses anything
   its description (`launcher/expectations/`) doesn't allow; `files/deploy.py` refuses releases that aren't
-  releasable, were built for another system, or aren't newer; `files/publish.py` refuses when
+  releasable, were built for another system, or aren't newer; `updater/deploy.py` writes nothing
+  unless the new updater's tree as it would be passes the validator; `files/publish.py` refuses when
   the live tree changed underneath it; settings files with unknown keys are refused.
 - **Versioned locally:** the local files trees are btrfs subvolumes, snapshotted before
-  every change (`files/deploy.py`, `files/pull.py`); any earlier state can be inspected or
+  every change (`files/deploy.py`, `updater/deploy.py`, `files/pull.py`); any earlier state can be inspected or
   restored with `files/snapshots.py`.
 - **Not yet versioned:** `files/publish.py` overwrites the live indexes and downloads, and
   nothing undoes a publish (restoring a snapshot and publishing again only adds files).
@@ -67,7 +68,7 @@ run inside the containers are plain bash: the Windows image has no Python.
 
 Every setting (repo, branch, platforms, images, clean/incremental, build type, jobs, macOS
 deployment target, extra CMake arguments, the URLs compiled into the Launcher, the gate's descriptions,
-the deployer image, the files trees, the bucket) is listed with its default in
+the deployer image, the files trees, the bucket, the new updater's tree and keys) is listed with its default in
 `config/defaults.env`. Every script takes `--config FILE`, a file of the same `KEY=value` form that
 may only set settings from `defaults.env`; environment variables override both. Values may
 be quoted and may use `$HOPPER` (the checkout), `$STATE` (see Layout), `$HOME` and settings defined before them.
@@ -417,7 +418,9 @@ the live site back to it.
 2. **Copies** the files there (as `FILES_ORIGIN_OWNER`, mode `FILES_ORIGIN_MODE`, each
    replaced atomically) in an order that never lets clients see an index whose files
    aren't there yet: store files, translation files, version files, indexes, downloads,
-   anything else; removals last.
+   anything else; removals last. The new updater's tree (`UPDATER_ROOT`) goes in its own
+   write order among them: content files, build manifests, keys documents and the mirror
+   list, the tags document after all of those.
 3. **The bucket** (`BUCKET_TARGET`, an rclone `remote:path`; the rclone config with its key
    is `BUCKET_CONFIG`, outside this repo) gets the same changes and removals, plus the
    download symlinks pointing at changed packages: the bucket has copies of those
@@ -555,6 +558,82 @@ untrusted signers, keys rotation, expiry, every structural rule of the spec and 
 line are covered by the tests. Signatures made here have not yet been checked with
 Monocypher; that comes with the Launcher's own tests.
 
+## The new updater's tree (`updater/deploy.py`)
+
+    updater/deploy.py [--config FILE] [--dry-run] [--if-configured] <release dir>
+
+The publisher of the new layout (component 4 of `Updater.md` in the Design repo), repoman's
+replacement: it deploys a Launcher release into the setup's new updater tree, as
+`files/deploy.py` deploys it into the current layout. The tree is `UPDATER_ROOT` in the
+local files tree (`updater/` on files2), a directory of its own next to `update/` and
+`files/`, so the same snapshots, lock and `files/publish.py` cover it, and it is served as
+`<PUBLIC_URL><UPDATER_ROOT>/` from the files server and the bucket alike. It never touches
+the current layout. With `UPDATER_ROOT` empty (production, until its root key ceremony) it
+refuses; `--if-configured` says so and exits 0 instead.
+
+From the release's `deploy/<platform>.tar.gz` and `manifest.json` it makes one build for
+all platforms:
+
+1. **Content files:** every file of each bundle, `files/<xx>/<sha256>`, if the tree doesn't
+   have it yet (files the same in several builds or platforms are stored once).
+2. **The build manifest** `builds/<build>.json`: one variant per platform, with the
+   requirements the compatibility gate measured (`requires` in `manifest.json`), the files
+   with SHA-256, size and whether executable, and symbolic links. Paths are relative to the
+   bundle (`MultiMC/`, `MultiMC.app/`), as in the current layout's file lists.
+3. **Keys documents** from `UPDATER_KEYS` that the tree doesn't have yet; those it has must
+   be identical, signatures included. **The mirror list** from `UPDATER_MIRRORS`, if it
+   changed.
+4. **The tags document**, last: Latest moved to the build, the serial one higher. On a new
+   tree the build is Latest, Testing and Stable; otherwise Testing and Stable stay where
+   they are (moving them is the tag operations', still to come).
+
+Everything new is signed with the online key (`UPDATER_ONLINE_KEY`, which must be an online
+key of the newest keys document). Then, **before anything is written**, the whole tree as
+it would be is checked with the validator (`updater_formats.check_tree` with the new files
+as an overlay; the newest keys document as the floor; every content file hashed). Only if
+that passes is the tree snapshotted (`before-updater-<build>`) and written, in the write
+order above, each file renamed into place from `<UPDATER_ROOT>/.incoming/` (an interrupted
+run leaves that behind; the next one removes it). The tree as written is checked again; if
+that ever failed, the message names the snapshot to restore. Nothing is published:
+`files/publish.py` publishes it with the rest of the tree.
+
+Refused, with nothing written: a release that isn't releasable, isn't a Launcher build, was
+built for another setup (its `UPDATER_BASE`), or lacks a platform's requirements (releases
+from before 2026-11-01); a build number not higher than the tree's Latest, or withdrawn;
+a bundle with anything the format can't express (a mode other than 0644 and 0755, hard
+links, special files, empty directories, files outside the bundle directory).
+
+| Platform | Variant ID |
+|----------|------------|
+| lin64 | `linux-x86_64-qt5` |
+| lin32 | `linux-x86-qt5` |
+| win32 | `windows-x86-qt5.6` |
+| osx64-5.15.2 | `macos-x86_64-qt5.15` |
+
+The variant IDs are in `lib/common.py` (`PLATFORMS`); a Launcher build has its own compiled
+in and matches it as a whole string. No variant supersedes another yet.
+
+Not done here: re-signing the documents already in the tree after the online key is
+rotated (until then a publish with the new key is refused: the old documents no longer
+verify), and the tag operations (Testing, Stable, removing builds, retention, download
+archives), which come next as scripts of their own on `lib/updater_tree.py`: new documents
+from `Tree.sign`, checked with `Tree.gate`, written with `Tree.commit`.
+
+Tests, with throwaway keys, on btrfs subvolumes made in `HOPPER_TEST_DIR` (default `$STATE`;
+skipped elsewhere):
+
+    python3 -m unittest updater/test_deploy.py
+
+Verified 2026-11-01 on files2: build 5025 (`bd748be0`, 4 platforms, 92 content files)
+deployed into `$STATE/files2/updater` in under a second, published with `files/publish.py`
+(100 files, in write order, to the files server, the bucket and the purge; 10 s, nothing
+else changed); the tree downloaded over HTTPS from `files2.multimc.org/updater/` and from
+`files2-r2.multimc.org/updater/` each passed `updater/validate.py tree` with files2's
+keys document as the floor. In the tests: the next build stores only new content and moves
+Latest alone; a build that isn't newer, a bad bundle, a wrong setup, an online key outside
+the keys document, a differing keys document and a corrupt content file already in the tree
+are refused with the tree unchanged.
+
 ## The updater's keys (`keys/`)
 
     keys/make-key.py <name>
@@ -633,7 +712,12 @@ R2, purge), 39 s.
 
     launcher/release-build.py --config config/files2.env
     files/deploy.py --config config/files2.env $STATE/releases-files2/<build>
-    files/publish.py --config config/files2.env [--dry-run] $STATE/releases-files2/<build>
+    updater/deploy.py --config config/files2.env $STATE/releases-files2/<build>
+    files/publish.py --config config/files2.env [--dry-run]
+
+files2 also has the new updater's tree, `updater/` (since 2026-11-01, build 5025): a shadow
+no Launcher reads yet, signed with files2's test keys (`UPDATER_*` in `config/files2.env`),
+its mirror list naming the files server first and the bucket second. Laminar's `launcher-files2` adds every new build to it.
 
 Seeded 2026-10-23 (as R2 only) from a copy of the live tree, with `update/config.json` (repoman's URLs)
 and every `update/<platform>/channels.json` pointed at files2. The Launcher takes the channel
@@ -845,7 +929,10 @@ repo's `master` (it replaced the build-only `website` job, whose runs stay in La
 history), `patrons-production` every day at noon. Their `.run` are links to one script,
 `cfg/scripts/release`, which runs the same scripts the daemon ran, in the same order:
 
-- launcher: `launcher/release-build.py`, `files/deploy.py`, `files/publish.py`
+- launcher: `launcher/release-build.py`, `files/deploy.py`, `files/publish.py`; then
+  `updater/deploy.py --if-configured` and `files/publish.py` again, so the new updater's tree
+  only goes out after the current layout is live, and a failure there fails the job without
+  holding back the current layout (production has no tree yet and skips it, saying so)
 - translations: `translations/build.py`, `files/deploy.py`, `files/publish.py`
 - patrons: `patrons/update.py`, `files/deploy.py`, `files/publish.py`
 - website: `website/build.py`, `website/publish.py` (to test; production is still promoted

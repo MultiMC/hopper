@@ -3,11 +3,17 @@
 # <stream>-<setup>, e.g. translations-files2 is the translations with config/files2.env.
 # Each such job's .run is a link to this file. It runs hopper's scripts, in this order:
 #
-#   launcher      launcher/release-build.py [$COMMIT], files/deploy.py, files/publish.py
+#   launcher      launcher/release-build.py [$COMMIT], files/deploy.py, files/publish.py,
+#                 then updater/deploy.py (the new updater's tree, for setups that have one)
+#                 and files/publish.py again
 #   translations  translations/build.py [$COMMIT], files/deploy.py, files/publish.py
 #   patrons       patrons/update.py, files/deploy.py, files/publish.py
 #   website       website/build.py [$COMMIT], website/publish.py (to test; production is
 #                 promoted by hand: website/publish.py --production)
+#
+# The new updater's tree goes after the current layout is published, so a failure there
+# fails the job but never holds back the current layout. A setup without one (UPDATER_ROOT
+# empty, production for now) skips it with a log line (--if-configured).
 #
 # then daemon/releases.py cleanup (housekeeping; a failure is only logged). After a
 # published launcher-production, it queues template-production (the translations template)
@@ -54,6 +60,10 @@ if [[ $stream == website ]]; then
 else
     files/deploy.py --config "$config" "$release"
     files/publish.py --config "$config"
+    if [[ $stream == launcher ]]; then
+        updater/deploy.py --config "$config" --if-configured "$release"
+        files/publish.py --config "$config"
+    fi
 fi
 if [[ $JOB == launcher-production ]]; then
     # laminarc reaches laminard by LAMINAR_BIND_RPC, from laminar.service's environment

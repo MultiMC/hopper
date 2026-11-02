@@ -194,6 +194,42 @@ class TestTree(Base):
         self.edit_json("tags.json", lambda d: None, signers=("root1",))
         self.assertInvalid("no signature by a trusted key")
 
+    def test_overlay(self):
+        # The tree as it would be with a new build and tags, checked before anything is written
+        doc, contents = sample_build(4313)
+        overlay = {}
+        pending = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, pending)
+        for sha256, data in contents.items():
+            if not (self.tree.root / formats.content_path(sha256)).exists():
+                path = pending / sha256
+                path.write_bytes(data)
+                overlay[formats.content_path(sha256)] = path
+        data = formats.dump_json(doc)
+        overlay["builds/4313.json"] = data
+        overlay["builds/4313.json.sig"] = formats.sign(data, self.keys["online1"]).encode()
+        tags = {"type": "tags", "format": 1, "serial": 1043, "issued": "2026-11-01T12:00:00Z",
+                "tags": {"latest": 4313, "testing": 4305, "stable": 4290}, "withdrawn": [4311]}
+        data = formats.dump_json(tags)
+        overlay["tags.json"] = data
+        overlay["tags.json.sig"] = formats.sign(data, self.keys["online1"]).encode()
+        floor = self.tree.floor()
+        summary, _ = formats.check_tree(self.tree.root, floor, NOW, overlay=overlay)
+        self.assertIn("tags serial 1043 (latest 4313", summary)
+        self.assertFalse((self.tree.root / "builds/4313.json").exists())
+        self.assertIn("tags serial 1042", self.tree.check()[0])
+
+        missing = dict(overlay)
+        del missing["builds/4313.json"], missing["builds/4313.json.sig"]
+        with self.assertRaises(Invalid) as caught:
+            formats.check_tree(self.tree.root, floor, NOW, overlay=missing)
+        self.assertIn("latest is build 4313, which isn't in builds/", str(caught.exception))
+        content = next(name for name in overlay if name.startswith("files/"))
+        overlay[content].write_bytes(b"changed")
+        with self.assertRaises(Invalid) as caught:
+            formats.check_tree(self.tree.root, floor, NOW, overlay=overlay)
+        self.assertIn("%s is 7 bytes" % content, str(caught.exception))
+
     def test_extra_untrusted_line_is_ignored(self):
         self.edit_json("tags.json", lambda d: None, signers=("stranger", "online1"))
         self.tree.check()
