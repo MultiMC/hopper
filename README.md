@@ -74,12 +74,18 @@ may only set settings from `defaults.env`; environment variables override both. 
 be quoted and may use `$HOPPER` (the checkout), `$STATE` (see Layout), `$HOME` and settings defined before them.
 `common.load_settings` reads them; every setting is also passed into the build containers.
 
-Of the URLs only `UPDATER_BASE`, `NOTIFICATION_URL` and `TRANSLATIONS_BASE_URL` take
-effect: the Launcher's `CMakeLists.txt` hard-codes the subreddit, Discord and bug tracker
-URLs with plain `set()`. `TRANSLATIONS_BASE_URL` needs a Launcher with the
-`Launcher_TRANSLATIONS_BASE_URL` option (branch `translations-url`, 2026-10-24); older ones
-have the production URL hard-coded and ignore it. The compatibility gate only maps a URL
-setting to the build's own value when the Launcher being built has the option.
+**Our sites** (since 2026-11-03; the Design repo's `LauncherNetwork.md`): `FILES_MIRRORS` and
+`META_MIRRORS` are each a site's base URLs, separated by spaces, the main server first and
+then its copies (the bucket), in the order the Launcher tries them. They go into the
+Launcher as `Launcher_FILES_MIRRORS` and `Launcher_META_MIRRORS`, which builds every URL on
+our sites from a base URL and a path. `FILES_MIRRORS` also says where the files tree is
+(`files/publish.py` purges on each of its base URLs) and is the new updater's mirror list.
+Older Launchers take `UPDATER_BASE`, `NOTIFICATION_URL` and `TRANSLATIONS_BASE_URL` one by
+one; `common.load_settings` derives them from the first files base URL (`update/`,
+`notifications.json`, `translations/`), and the build steps pass both kinds, so older
+commits still build (but fail the gate, below). They can't be set themselves. Of the other
+URLs none take effect: the Launcher's `CMakeLists.txt` hard-codes the subreddit, Discord and
+bug tracker URLs with plain `set()`.
 
 **Container engine:** `CONTAINER_ENGINE` is `docker` (default; containers run as the
 calling user with `-u`) or `podman` (rootless, with `--userns=keep-id`, so the calling user
@@ -309,19 +315,24 @@ reviewed. `describe` writes a description from an existing build; it was used on
 | Section | Checks |
 |---------|--------|
 | `[files]` | exactly the listed files in the bundle |
-| `[urls]` | the listed URLs are embedded in the main binary; `${NAME}` is a setting (`UPDATER_BASE`, `NOTIFICATION_URL`, `TRANSLATIONS_BASE_URL`) |
+| `[urls]` | the listed URLs are embedded in the main binary; `"${NAME}"` is each base URL of the setting `NAME` (`FILES_MIRRORS`, `META_MIRRORS`) |
 | `[elf]` (lin64, lin32) | ELF architecture; only the listed system libraries; no symbol versions newer than listed (`GLIBC_2.14`, `GLIBCXX_3.4.21`, ...) |
 | `[pe]` (win32) | i386 only; PE OS/subsystem version at most 4.0 (XP); only the listed system DLLs; the bundled toolchain files (Qt, MinGW runtime, OpenSSL, zlib) byte-identical (SHA-256s) |
 | `[macho]` (osx64-5.15.2) | x86_64 only; minimum macOS at most 10.13; nothing linked from outside the bundle, `/usr/lib`, `/System` |
 
-`launcher/release-build.py` passes each URL setting with `--set`: the build's own value if the
+`launcher/release-build.py` passes each site setting with `--set`: the build's own value if the
 Launcher being built has the matching `Launcher_<setting>` CMake option, otherwise the
-production default (such a Launcher has it hard-coded). So files2 builds are checked
-against files2's URLs.
+production default. So files2 builds are checked against files2's sites. A Launcher from
+before those options embeds none of the base URLs on their own and fails; build it with a
+gate description of its time (`GATE_DESCRIPTIONS`).
 
 Edits so far: `${TRANSLATIONS_BASE_URL}index_v2.json` is no longer required (2026-10-25):
 with `Launcher_TRANSLATIONS_BASE_URL` (branch `translations-url`) the Launcher builds the
-index URL at runtime.
+index URL at runtime. The sites replace `${UPDATER_BASE}`, `${NOTIFICATION_URL}`,
+`${TRANSLATIONS_BASE_URL}`, `https://files.multimc.org/fmllibs/`,
+`https://files.multimc.org/patrons.txt` and `https://meta.multimc.org/v1/` with
+`"${FILES_MIRRORS}"` and `"${META_MIRRORS}"` (2026-11-03). Checked against files2's develop
+build 5026 (before the Launcher's sites): it fails on exactly the four base URLs, as it should.
 
 Verified 2026-10-25: develop 2a684511 passes on all four platforms, with production's and
 files2's settings; an extra file and a modified `Qt5Core.dll` fail; the `translations-url`
@@ -426,7 +437,9 @@ the live site back to it.
    download symlinks pointing at changed packages: the bucket has copies of those
    (`mmc-develop-osx64.tar.gz` -> `mmc-develop-osx64-5.15.2.tar.gz`).
 4. **Purges** every changed or removed file (and those symlinks) from Cloudflare's cache at
-   `PUBLIC_URL`. It needs `CLOUDFLARE_ZONE_ID` and an API token with Zone / Cache Purge
+   each base URL of `FILES_MIRRORS`: the files server and the bucket's domain (as of
+   2026-11-03 Cloudflare caches nothing at the bucket's domains, `DYNAMIC`; purging there too
+   keeps it right once it does). It needs `CLOUDFLARE_ZONE_ID` and an API token with Zone / Cache Purge
    permission in the file `CLOUDFLARE_TOKEN` (outside this repo). Up to 100 URLs per
    request (Free plan). If it fails, publishing again retries it (nothing is recorded as
    published until everything succeeded). Files changed by hand
@@ -567,7 +580,7 @@ replacement: it deploys a Launcher release into the setup's new updater tree, as
 `files/deploy.py` deploys it into the current layout. The tree is `UPDATER_ROOT` in the
 local files tree (`updater/` on files2), a directory of its own next to `update/` and
 `files/`, so the same snapshots, lock and `files/publish.py` cover it, and it is served as
-`<PUBLIC_URL><UPDATER_ROOT>/` from the files server and the bucket alike. It never touches
+`<UPDATER_ROOT>/` below each base URL of `FILES_MIRRORS`. It never touches
 the current layout. With `UPDATER_ROOT` empty (production, until its root key ceremony) it
 refuses; `--if-configured` says so and exits 0 instead.
 
@@ -581,8 +594,9 @@ all platforms:
    with SHA-256, size and whether executable, and symbolic links. Paths are relative to the
    bundle (`MultiMC/`, `MultiMC.app/`), as in the current layout's file lists.
 3. **Keys documents** from `UPDATER_KEYS` that the tree doesn't have yet; those it has must
-   be identical, signatures included. **The mirror list** from `UPDATER_MIRRORS`, if it
-   changed.
+   be identical, signatures included. **The mirror list**: the base URLs of `FILES_MIRRORS`
+   (the files site's roots, the tree being at `UPDATER_ROOT` below each), each a group of its
+   own, in order; if it changed.
 4. **The tags document**, last: Latest moved to the build, the serial one higher. On a new
    tree the build is Latest, Testing and Stable; otherwise Testing and Stable stay where
    they are (moving them is the tag operations', still to come).
@@ -871,6 +885,9 @@ watches the directory it found when it started. Its jobs so far:
 - `meta`: the meta pipeline (below).
 - `launcher-production`, `launcher-files2`, `translations-production`, `translations-files2`,
   `website-production`, `patrons-production`: hopper's releases (below).
+  `launcher-production` has no `TRIGGER` since 2026-11-03 (commented out in its `.conf`):
+  no production Launcher releases until the Launcher's sites (`FILES_MIRRORS`) are verified
+  on files2.
 - `template-production`: the translations template (below).
 
 ### Its binaries (`laminar/build.sh`)

@@ -31,7 +31,8 @@ TEST_DIR = Path(os.environ.get("HOPPER_TEST_DIR") or common.STATE)
 ON_BTRFS = TEST_DIR.is_dir() and subprocess.run(["stat", "-f", "-c", "%T", str(TEST_DIR)], capture_output=True,
                                                  text=True).stdout.strip() == "btrfs"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
-MIRRORS = "https://files.example.org/updater/ ; https://bucket.example.org/updater/"
+# FILES_MIRRORS: the files site, then its copy; UPDATER_BASE follows from the first
+MIRRORS = "https://files.example.org/ https://bucket.example.org/"
 
 
 def make_key(directory, name):
@@ -115,9 +116,9 @@ class TestDeploy(unittest.TestCase):
         self.keys_dir = self.dir / "keys"
         self.keys_dir.mkdir()
         write_keys(self.keys_dir, 1, [self.keys["root1"], self.keys["root2"]], [self.keys["online1"]], [self.keys["root1"]])
-        self.settings = {"FILES_ROOT": str(self.files), "UPDATER_BASE": "https://files.example.org/update/",
+        self.settings = {"FILES_ROOT": str(self.files), "FILES_MIRRORS": MIRRORS,
                          "UPDATER_ROOT": "updater", "UPDATER_KEYS": str(self.keys_dir),
-                         "UPDATER_ONLINE_KEY": str(self.keys["online1"]), "UPDATER_MIRRORS": MIRRORS}
+                         "UPDATER_ONLINE_KEY": str(self.keys["online1"])}
         self.tree = self.files / "updater"
 
     def tearDown(self):
@@ -233,8 +234,9 @@ class TestDeploy(unittest.TestCase):
 
     def test_mirrors_change(self):
         self.assertDeploys(make_release(self.dir, 10))
-        self.assertDeploys(make_release(self.dir, 11), UPDATER_MIRRORS="https://files.example.org/updater/")
-        self.assertEqual(self.doc("mirrors.json")["mirrors"], [["https://files.example.org/updater/"]])
+        self.assertEqual(self.doc("mirrors.json")["mirrors"], [["https://files.example.org/"], ["https://bucket.example.org/"]])
+        self.assertDeploys(make_release(self.dir, 11), FILES_MIRRORS="https://files.example.org/")
+        self.assertEqual(self.doc("mirrors.json")["mirrors"], [["https://files.example.org/"]])
         self.valid()
 
     def test_keys_rotation(self):

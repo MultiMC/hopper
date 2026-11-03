@@ -136,7 +136,30 @@ def load_settings(config_file=None):
     for key in defaults:
         if key in os.environ:
             values[key] = os.environ[key]
+    for key in SITES:
+        values[key] = " ".join(site_urls(values[key], key))
+    values.update(derived_urls(values["FILES_MIRRORS"]))
     return Settings(values, defaults)
+
+
+# Our sites' settings: base URLs separated by spaces, the main server first
+SITES = ("FILES_MIRRORS", "META_MIRRORS")
+
+
+def site_urls(value, key="FILES_MIRRORS"):
+    """A site setting's base URLs, in order."""
+    urls = value.split()
+    if not urls or len(set(urls)) != len(urls) or not all(re.match(r"^https://[^/\s]+/$", u) for u in urls):
+        die("%s must be distinct https:// base URLs ending in /, separated by spaces, not %r" % (key, value))
+    return urls
+
+
+def derived_urls(files_mirrors):
+    """The URLs older Launchers take one by one (Launcher_UPDATER_BASE, ...), on the files site's
+    first base URL; Launchers with Launcher_FILES_MIRRORS build them themselves."""
+    first = site_urls(files_mirrors)[0]
+    return {"UPDATER_BASE": first + "update/", "NOTIFICATION_URL": first + "notifications.json",
+            "TRANSLATIONS_BASE_URL": first + "translations/"}
 
 
 # --- output and commands -----------------------------------------------------------------

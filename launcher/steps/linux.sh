@@ -26,6 +26,8 @@ cmake \
     -DLauncher_NOTIFICATION_URL:STRING="$NOTIFICATION_URL" \
     -DLauncher_UPDATER_BASE="$UPDATER_BASE" \
     -DLauncher_TRANSLATIONS_BASE_URL="$TRANSLATIONS_BASE_URL" \
+    -DLauncher_FILES_MIRRORS="${FILES_MIRRORS// /;}" \
+    -DLauncher_META_MIRRORS="${META_MIRRORS// /;}" \
     -DLauncher_LAYOUT=lin-nodeps \
     -DLauncher_VERSION_BUILD="$BUILD_NUMBER" \
     -DLauncher_BUILD_PLATFORM="$PLATFORM" \

@@ -245,13 +245,15 @@ def gate(settings, platforms, src, build_root, out):
     """Check each platform's build against its description (launcher/compat-check.py); {platform: passed}."""
     descriptions = Path(settings["GATE_DESCRIPTIONS"])
     log("compatibility checks against %s" % descriptions)
-    # URLs in the descriptions can be ${SETTING}: each gets this build's value, if the
+    # URLs in the descriptions can be ${SETTING}: each base URL of this build's value, if the
     # Launcher being built can take it (its CMakeLists.txt has Launcher_<setting>);
-    # otherwise the production default, which such a Launcher has hard-coded.
+    # otherwise the production default. Launchers from before Launcher_FILES_MIRRORS have
+    # none of the base URLs on their own and fail the gate; build them with a gate
+    # description of their time (GATE_DESCRIPTIONS).
     cmake = (src / "CMakeLists.txt").read_text()
     values = []
-    for key in ("UPDATER_BASE", "NOTIFICATION_URL", "TRANSLATIONS_BASE_URL"):
-        value = settings[key] if ("Launcher_" + key) in cmake else settings.defaults[key]
+    for key in common.SITES:
+        value = settings[key] if ("Launcher_" + key) in cmake else " ".join(settings.defaults[key].split())
         values += ["--set", "%s=%s" % (key, value)]
     passed = {}
     for p in platforms:

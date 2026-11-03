@@ -40,7 +40,8 @@ class Tree:
         if not settings["UPDATER_ONLINE_KEY"] or not self.online_key.is_file():
             common.die("no online key: UPDATER_ONLINE_KEY (%s) must be its private key" % settings["UPDATER_ONLINE_KEY"])
         self.keys = keys_documents(settings["UPDATER_KEYS"])
-        self.mirrors = mirror_groups(settings["UPDATER_MIRRORS"])
+        # the mirror list: the files site's base URLs, each a group of its own, in order
+        self.mirrors = [[url] for url in common.site_urls(settings["FILES_MIRRORS"])]
         try:
             self.online_public = formats.public_key(self.online_key)
         except formats.Invalid as e:
@@ -96,7 +97,7 @@ class Tree:
         return changes
 
     def mirrors_changes(self, now):
-        """A new mirror list if UPDATER_MIRRORS differs from the tree's (or it has none)."""
+        """A new mirror list if FILES_MIRRORS differs from the tree's (or it has none)."""
         data = self.read("mirrors.json")
         if data is not None and formats.check_document("mirrors.json", data)["mirrors"] == self.mirrors:
             return {}
@@ -189,14 +190,6 @@ def keys_documents(directory):
     if not found or sorted(found) != list(range(1, len(found) + 1)):
         common.die("%s: the keys documents must be 1.json to N.json without gaps" % directory)
     return [found[v] for v in sorted(found)]
-
-
-def mirror_groups(setting):
-    """UPDATER_MIRRORS as the mirror list's groups: URLs separated by spaces, groups by ";"."""
-    groups = [group.split() for group in setting.split(";")]
-    if not setting.strip() or not all(groups):
-        common.die("UPDATER_MIRRORS must be base URLs, in groups separated by \";\", not %r" % setting)
-    return groups
 
 
 def now():

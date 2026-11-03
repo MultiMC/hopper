@@ -21,7 +21,7 @@ back to it.
    pointing at changed packages (the bucket has copies of them). With FILES_ORIGIN empty,
    the whole tree is synced to the bucket instead.
 3. Purges every changed or removed file (and those symlinks) from Cloudflare's cache at
-   PUBLIC_URL. Needs CLOUDFLARE_ZONE_ID and an API token with Zone / Cache Purge
+   each base URL of FILES_MIRRORS: the files server and the bucket. Needs CLOUDFLARE_ZONE_ID and an API token with Zone / Cache Purge
    permission in the file CLOUDFLARE_TOKEN (outside this repo). If it fails, publishing
    again retries it (nothing is recorded as published until everything succeeded).
 
@@ -86,9 +86,8 @@ def main():
                    "(or use --no-bucket)" % settings["BUCKET_CONFIG"])
 
     purge = not args.no_purge
-    if purge and not (settings["PUBLIC_URL"] and settings["CLOUDFLARE_ZONE_ID"]
-                      and Path(settings["CLOUDFLARE_TOKEN"]).is_file()):
-        common.die("can't purge Cloudflare's cache: PUBLIC_URL, CLOUDFLARE_ZONE_ID and the token "
+    if purge and not (settings["CLOUDFLARE_ZONE_ID"] and Path(settings["CLOUDFLARE_TOKEN"]).is_file()):
+        common.die("can't purge Cloudflare's cache: CLOUDFLARE_ZONE_ID and the token "
                    "file CLOUDFLARE_TOKEN (%s) are needed (or use --no-purge)" % settings["CLOUDFLARE_TOKEN"])
 
     origin = settings["FILES_ORIGIN"]
@@ -242,9 +241,11 @@ def sync_bucket(settings, dry_run):
 
 
 def purge_cache(settings, paths, dry_run):
-    """Evict these paths (relative to FILES_ROOT) from Cloudflare's cache at PUBLIC_URL."""
-    log("Cloudflare: purging %d URLs under %s" % (len(paths), settings["PUBLIC_URL"]))
-    common.purge_cache(settings, [settings["PUBLIC_URL"].rstrip("/") + "/" + path for path in paths], dry_run,
+    """Evict these paths (relative to FILES_ROOT) from Cloudflare's cache at every base URL of
+    FILES_MIRRORS."""
+    bases = common.site_urls(settings["FILES_MIRRORS"])
+    log("Cloudflare: purging %d URLs under %s" % (len(paths) * len(bases), " ".join(bases)))
+    common.purge_cache(settings, [base + path for base in bases for path in paths], dry_run,
                        "everything else is published; publish again to retry")
 
 

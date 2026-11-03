@@ -33,13 +33,14 @@ max_versions = { "CXXABI_" = "CXXABI_1.3", "GCC_" = "GCC_3.0", "GLIBCXX_" = "GLI
 
 [urls]
 main_binary = "bin/MultiMC"
-# ${NAME} is the setting NAME (UPDATER_BASE, NOTIFICATION_URL, TRANSLATIONS_BASE_URL)
+# "${NAME}" is each base URL of the setting NAME (FILES_MIRRORS, META_MIRRORS)
 required = [
-    "${NOTIFICATION_URL}",
-    "${TRANSLATIONS_BASE_URL}",
-    # ${TRANSLATIONS_BASE_URL}index_v2.json: not embedded any more since the Launcher builds it
-    # from TRANSLATIONS_BASE_URL (Launcher_TRANSLATIONS_BASE_URL, branch translations-url, 2026-10-25)
-    "${UPDATER_BASE}",
+    # Our sites (Launcher_FILES_MIRRORS, Launcher_META_MIRRORS, 2026-11-03): the Launcher
+    # builds every URL on them from a base URL and a path, so the old ${UPDATER_BASE},
+    # ${NOTIFICATION_URL}, ${TRANSLATIONS_BASE_URL}, https://files.multimc.org/fmllibs/,
+    # https://files.multimc.org/patrons.txt and https://meta.multimc.org/v1/ are gone
+    "${FILES_MIRRORS}",
+    "${META_MIRRORS}",
     "http://api.technicpack.net/modpack/",
     "http://auth.xboxlive.com",
     "http://creativecommons.org/licenses/by-sa/3.0/",
@@ -83,8 +84,6 @@ required = [
     "https://discord.gg/multimc",
     "https://dist.creeper.host/FTB2/",
     "https://download.nodecdn.net/containers/atl/",
-    "https://files.multimc.org/fmllibs/",
-    "https://files.multimc.org/patrons.txt",
     "https://github.com/MultiMC/Launcher",
     "https://github.com/MultiMC/Launcher/issues",
     "https://github.com/MultiMC/Launcher/issues/%1",
@@ -98,7 +97,6 @@ required = [
     "https://login.live.com/login.srf",
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode",
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
-    "https://meta.multimc.org/v1/",
     "https://multimc.org/posts.html",
     "https://multimc.org/rss.xml",
     "https://paste.ee",

@@ -13,7 +13,7 @@ tree as one build for all platforms:
 - the build manifest builds/<build>.json, one variant per platform, signed with the online
   key (UPDATER_ONLINE_KEY);
 - the setup's keys documents (UPDATER_KEYS) the tree doesn't have yet, and a new mirror
-  list (UPDATER_MIRRORS) if it changed;
+  list (FILES_MIRRORS) if it changed;
 - the tags document with Latest moved to the build and its serial one higher, signed, last.
   On a new tree the build is all three tags; otherwise Testing and Stable stay.
 

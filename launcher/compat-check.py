@@ -13,9 +13,9 @@ start from (it was used once, on the builds TeamCity shipped).
 What a description holds, and what `check` does with it:
   [files]  list: exactly these files in the bundle (none more, none less)
   [urls]   main_binary: required: these URLs embedded in the main binary (a missing
-           updater or notification URL would cut users off from updates). ${NAME} is
-           replaced by the setting NAME, given with --set (launcher/release-build.py passes
-           UPDATER_BASE, NOTIFICATION_URL and TRANSLATIONS_BASE_URL)
+           files site would cut users off from updates). "${NAME}" is each of the base
+           URLs in the setting NAME, given with --set (launcher/release-build.py passes
+           FILES_MIRRORS and META_MIRRORS: base URLs separated by spaces)
   [elf]    lin*: machine: every ELF has it; system_libs: the only libraries from outside
            the bundle they may need; max_versions: no GLIBC_/GLIBCXX_/CXXABI_/GCC_ symbol
            version newer than these
@@ -67,11 +67,10 @@ MACHINE_NAMES = {62: "x86_64", 3: "i386", 0x14C: "i386"}
 ARCHS = {62: "x86_64", 3: "x86", 0x14C: "x86", "X86_64": "x86_64", "I386": "x86", "ARM64": "arm64"}
 QT_VERSION_RE = re.compile(r"\bQt_(5\.[0-9]+|5_PRIVATE_API)\b")
 
-# URLs that come from settings: `describe` writes them as ${NAME}...
+# URLs that come from settings, production's values: `describe` writes each of them as ${NAME}
 URL_SETTINGS = {
-    "UPDATER_BASE": "https://files.multimc.org/update/",
-    "NOTIFICATION_URL": "https://files.multimc.org/notifications.json",
-    "TRANSLATIONS_BASE_URL": "https://files.multimc.org/translations/",
+    "FILES_MIRRORS": "https://files.multimc.org/ https://files-r2.multimc.org/",
+    "META_MIRRORS": "https://meta.multimc.org/ https://meta-r2.multimc.org/",
 }
 
 
@@ -371,10 +370,26 @@ def check_urls(tree, expected, values, problems, facts):
         return
     found = embedded_urls(tree[rel])
     facts["embedded_urls"] = len(found)
-    for template in expected["required"]:
-        url = re.sub(r"\$\{(\w+)\}", lambda m: values.get(m.group(1), URL_SETTINGS.get(m.group(1), m.group(0))), template)
+    for url in required_urls(expected["required"], values):
         if url not in found:
             problems.append("URL missing from the main binary: %s" % url)
+
+
+def required_urls(templates, values):
+    """The required URLs, with "${NAME}" replaced by each URL of the setting NAME."""
+    urls = []
+    for template in templates:
+        setting = re.match(r"^\$\{(\w+)\}$", template)
+        if setting:
+            name = setting.group(1)
+            if name not in values and name not in URL_SETTINGS:
+                raise SystemExit("unknown setting in a required URL: %s" % template)
+            urls += values.get(name, URL_SETTINGS.get(name)).split()
+        elif "${" in template:
+            raise SystemExit("a setting must be a whole required URL: %s" % template)
+        else:
+            urls.append(template)
+    return urls
 
 
 # --- describe ----------------------------------------------------------------------------
@@ -390,10 +405,10 @@ def toml_list(items, indent="    "):
 
 
 def templated(url):
-    """Write URLs that come from a setting as ${NAME}..., longest prefix first."""
-    for name, prefix in sorted(URL_SETTINGS.items(), key=lambda kv: -len(kv[1])):
-        if url.startswith(prefix):
-            return "${%s}%s" % (name, url[len(prefix):])
+    """Write a URL that comes from a setting as ${NAME}."""
+    for name, value in URL_SETTINGS.items():
+        if url in value.split():
+            return "${%s}" % name
     return url
 
 
@@ -440,8 +455,8 @@ def write_description(platform, tree, source):
     rel = main_binary(platform)
     out += ["[urls]",
             "main_binary = %s" % toml_string(rel),
-            "# ${NAME} is the setting NAME (%s)" % ", ".join(URL_SETTINGS),
-            "required = " + toml_list(sorted(templated(u) for u in embedded_urls(tree[rel]))),
+            "# \"${NAME}\" is each base URL of the setting NAME (%s)" % ", ".join(URL_SETTINGS),
+            "required = " + toml_list(sorted(set(templated(u) for u in embedded_urls(tree[rel])))),
             ""]
     return "\n".join(out)
 
