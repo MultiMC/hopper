@@ -19,8 +19,9 @@ Launcher builds: does what TeamCity's deploy steps did on the files server, with
 which adds update/<platform>/<branch>/<build>.json, adds it to the channel's index.json,
 copies files the store doesn't have yet into files/<md5>-<name>, and replaces the download
 package. Refuses a build made for another tree (its UPDATER_BASE must be the tree's
-update/config.json base_url), and one whose build number isn't higher than every version
-already in the channel (the updater only offers newer IDs).
+update/config.json base_url), one built with another updater or other pinned root keys
+than this setup's (UPDATER_VERSION, UPDATER_ROOT_KEYS), and one whose build number isn't
+higher than every version already in the channel (the updater only offers newer IDs).
 
 Translations: translations/ becomes the release's files, plus the files of languages that
 kept their previous release (still named in the new index); everything else in there is
@@ -75,6 +76,7 @@ def deploy_launcher(settings, release, manifest, root):
     if manifest.get("updater_base") != tree_base:
         common.die("the release updates from %s, this tree is %s (wrong --config?)"
                    % (manifest.get("updater_base"), tree_base))
+    common.check_release_updater(settings, manifest, release)
 
     with common.lock_files(settings):
         for p in platforms:

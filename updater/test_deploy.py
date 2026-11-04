@@ -70,7 +70,8 @@ MACOS_LINKS = [("MultiMC.app/Contents/Frameworks/QtCore.framework/Versions/Curre
                ("MultiMC.app/Contents/Frameworks/QtCore.framework/QtCore", "Versions/Current/QtCore")]
 
 
-def make_release(directory, build, linux=None, requires=None, updater_base="https://files.example.org/update/"):
+def make_release(directory, build, linux=None, requires=None, updater_base="https://files.example.org/update/",
+                 updater=None):
     """A release as launcher/release-build.py writes it, for lin64 and osx64-5.15.2."""
     release = Path(tempfile.mkdtemp(dir=directory)) / str(build)
     (release / "deploy").mkdir(parents=True)
@@ -94,6 +95,8 @@ def make_release(directory, build, linux=None, requires=None, updater_base="http
                              "requires": {"os": "macos", "arch": "x86_64", "os_version": "10.13"}},
         },
     }
+    if updater:
+        manifest["updater"] = updater
     (release / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return release
 
@@ -222,6 +225,11 @@ class TestDeploy(unittest.TestCase):
         self.assertRefused(make_release(self.dir, 10, updater_base="https://elsewhere.example.org/update/"),
                            "wrong --config?")
 
+    def test_built_for_another_updater(self):
+        # This setup builds updater 1 (the default); a release pinned to keys goes elsewhere
+        release = make_release(self.dir, 10, updater={"version": 2, "root_keys": [formats.public_key(self.keys["root1"])]})
+        self.assertRefused(release, "was built with updater 2 pinned to")
+
     def test_online_key_not_in_keys(self):
         self.assertRefused(make_release(self.dir, 10), "isn't an online key of keys/1.json",
                            UPDATER_ONLINE_KEY=str(self.keys["online2"]))
@@ -289,6 +297,61 @@ class TestPublishingOrder(unittest.TestCase):
         self.assertEqual(order[-4:-2], ["updater/tags.json", "updater/tags.json.sig"])
         without = publish.in_stages(changes, publish.publishing_order({"UPDATER_ROOT": ""}))
         self.assertIn("updater/tags.json", without[-1][1])
+
+
+
+class TestUpdaterSettings(unittest.TestCase):
+    """common.updater_floor: what a setup's Launchers compile in, and the setups it refuses."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.key_dir = Path(tempfile.mkdtemp())
+        cls.keys = {name: make_key(cls.key_dir, name) for name in ("root1", "root2", "root3", "online1")}
+        cls.roots = [formats.public_key(cls.keys[k]) for k in ("root1", "root2")]
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.key_dir)
+
+    def setUp(self):
+        self.keys_dir = Path(tempfile.mkdtemp())
+        write_keys(self.keys_dir, 1, [self.keys["root1"], self.keys["root2"]], [self.keys["online1"]], [self.keys["root1"]])
+
+    def tearDown(self):
+        shutil.rmtree(self.keys_dir)
+
+    def floor(self, **settings):
+        return common.updater_floor({"UPDATER_VERSION": "2", "UPDATER_ROOT": "updater", "UPDATER_KEYS": str(self.keys_dir),
+                                     "UPDATER_ROOT_KEYS": " ".join(self.roots), **settings})
+
+    def assertRefused(self, **settings):
+        with self.assertRaises(SystemExit):
+            self.floor(**settings)
+
+    def test_updater_1(self):
+        self.assertIsNone(self.floor(UPDATER_VERSION="1", UPDATER_ROOT_KEYS=""))
+        self.assertRefused(UPDATER_VERSION="1")
+        self.assertRefused(UPDATER_VERSION="3")
+
+    def test_floor_is_newest_keys_document(self):
+        self.assertEqual(self.floor(), (self.keys_dir / "1.json").read_bytes())
+        # A rotation to new root keys: the floor and the pinned keys move to the new ones
+        new_roots = [self.keys["root2"], self.keys["root3"]]
+        write_keys(self.keys_dir, 2, new_roots, [self.keys["online1"]], [self.keys["root1"]])
+        self.assertRefused()
+        pinned = " ".join(formats.public_key(k) for k in new_roots)
+        self.assertEqual(self.floor(UPDATER_ROOT_KEYS=pinned), (self.keys_dir / "2.json").read_bytes())
+
+    def test_half_set_up(self):
+        self.assertRefused(UPDATER_ROOT_KEYS="")
+        self.assertRefused(UPDATER_ROOT="")
+        self.assertRefused(UPDATER_ROOT_KEYS=self.roots[0])
+        self.assertRefused(UPDATER_ROOT_KEYS=" ".join(self.roots + [self.roots[0]]))
+
+    def test_broken_chain(self):
+        # Version 2 signed by a key that isn't one of version 1's root keys
+        write_keys(self.keys_dir, 2, [self.keys["root1"], self.keys["root2"]], [self.keys["online1"]], [self.keys["root3"]])
+        self.assertRefused()
 
 
 if __name__ == "__main__":

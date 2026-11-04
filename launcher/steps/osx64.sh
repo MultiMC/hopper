@@ -33,6 +33,11 @@ rm -rf /out/install
 if [ "$CLEAN" = 1 ]; then rm -rf /out/build; fi
 mkdir -p /out/build && cd /out/build
 
+# The updater's keys floor, put next to the build by common.prepare_build_output (updater 2
+# only)
+UPDATER_FLOOR=
+if [ -f /out/updater-keys-floor.json ]; then UPDATER_FLOOR='/out/updater-keys-floor.json'; fi
+
 cmake \
     -DCMAKE_TOOLCHAIN_FILE=/opt/toolchain-osx64.cmake \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
@@ -48,6 +53,10 @@ cmake \
     -DLauncher_TRANSLATIONS_BASE_URL="$TRANSLATIONS_BASE_URL" \
     -DLauncher_FILES_MIRRORS="${FILES_MIRRORS// /;}" \
     -DLauncher_META_MIRRORS="${META_MIRRORS// /;}" \
+    -DLauncher_UPDATER_VERSION="$UPDATER_VERSION" \
+    -DLauncher_UPDATER_ROOT_KEYS="${UPDATER_ROOT_KEYS// /;}" \
+    -DLauncher_UPDATER_KEYS_FLOOR="$UPDATER_FLOOR" \
+    -DLauncher_UPDATER_VARIANT="$UPDATER_VARIANT" \
     -DLauncher_SUBREDDIT_URL="$SUBREDDIT_URL" \
     -DLauncher_DISCORD_URL="$DISCORD_URL" \
     -DLauncher_BUG_TRACKER_URL="$BUG_TRACKER_URL" \

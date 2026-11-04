@@ -24,8 +24,8 @@ RUN curl -fsSLO https://capnproto.org/capnproto-c++-${CAPNP_VERSION}.tar.gz \
     && cmake --build capnp-build -j"$(nproc)" \
     && cmake --install capnp-build
 
-# Laminar 1.4-3-g9d928cca (2026-10-28)
-ARG LAMINAR_COMMIT=9d928ccad8c89c6f22892d167ea3842173ef62d1
+# Laminar 1.4-4-g9968f74a (2026-11-02)
+ARG LAMINAR_COMMIT=9968f74ae957382d2c4e967564b307dbcc8eeaa2
 RUN git clone -q https://github.com/ohwgiles/laminar.git \
     && git -C laminar checkout -q ${LAMINAR_COMMIT} \
     && cmake -S laminar -B laminar-build -DCMAKE_BUILD_TYPE=Release \

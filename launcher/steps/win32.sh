@@ -34,6 +34,11 @@ export JAVA_HOME="$JDK"
 CMAKE='T:\CMake-3.20.1\bin\cmake.exe'
 QT='T:\Qt\5.6.3\mingw49_32'
 
+# The updater's keys floor, put next to the build by common.prepare_build_output (updater 2
+# only)
+UPDATER_FLOOR=
+if [ -f /out/updater-keys-floor.json ]; then UPDATER_FLOOR='O:\updater-keys-floor.json'; fi
+
 cd /out/build
 $WINE "$CMAKE" -G "MinGW Makefiles" \
     -DCMAKE_MAKE_PROGRAM=mingw32-make \
@@ -49,6 +54,10 @@ $WINE "$CMAKE" -G "MinGW Makefiles" \
     -DLauncher_TRANSLATIONS_BASE_URL="$TRANSLATIONS_BASE_URL" \
     -DLauncher_FILES_MIRRORS="${FILES_MIRRORS// /;}" \
     -DLauncher_META_MIRRORS="${META_MIRRORS// /;}" \
+    -DLauncher_UPDATER_VERSION="$UPDATER_VERSION" \
+    -DLauncher_UPDATER_ROOT_KEYS="${UPDATER_ROOT_KEYS// /;}" \
+    -DLauncher_UPDATER_KEYS_FLOOR="$UPDATER_FLOOR" \
+    -DLauncher_UPDATER_VARIANT="$UPDATER_VARIANT" \
     -DLauncher_LAYOUT=win-bundle \
     -DLauncher_VERSION_BUILD="$BUILD_NUMBER" \
     -DLauncher_BUILD_PLATFORM="$PLATFORM" \

@@ -87,6 +87,22 @@ commits still build (but fail the gate, below). They can't be set themselves. Of
 URLs none take effect: the Launcher's `CMakeLists.txt` hard-codes the subreddit, Discord and
 bug tracker URLs with plain `set()`.
 
+**The updater in the Launchers** (since 2026-11-04): `UPDATER_VERSION` is the updater the
+setup's Launchers are built with (`Launcher_UPDATER_VERSION`): 1, the current one
+(production, until its root key ceremony), or 2, the new one (files2). With 2 they pin
+`UPDATER_ROOT_KEYS` (`Launcher_UPDATER_ROOT_KEYS`) and compile in the newest keys document
+from `UPDATER_KEYS` as the floor (`Launcher_UPDATER_KEYS_FLOOR`), and each platform gets its
+variant ID from `PLATFORMS` in `lib/common.py` (`Launcher_UPDATER_VARIANT`).
+`common.updater_floor` refuses a setup that is only half set up: root keys with updater 1;
+updater 2 without root keys, without `UPDATER_ROOT=updater` (the Launchers look for the tree
+at `updater/`), with a keys chain that doesn't verify or has expired, or with root keys that
+aren't exactly the newest keys document's. `common.prepare_build_output` writes the floor
+next to each build as `updater-keys-floor.json` (and removes one left by an earlier build
+with updater 2), where the build steps pick it up. Every release's `manifest.json` records
+the updater and root keys it was built with (`updater`), and `files/deploy.py` and
+`updater/deploy.py` refuse a release built with another updater or other keys than the
+setup's, so a build pinned to files2's test keys can't go anywhere else.
+
 **Container engine:** `CONTAINER_ENGINE` is `docker` (default; containers run as the
 calling user with `-u`) or `podman` (rootless, with `--userns=keep-id`, so the calling user
 is the same user inside and owns what the containers write). Everything that starts a
@@ -316,6 +332,7 @@ reviewed. `describe` writes a description from an existing build; it was used on
 |---------|--------|
 | `[files]` | exactly the listed files in the bundle |
 | `[urls]` | the listed URLs are embedded in the main binary; `"${NAME}"` is each base URL of the setting `NAME` (`FILES_MIRRORS`, `META_MIRRORS`) |
+| (no section) | the updater's keys in the main binary: every pinned root key (`--set UPDATER_ROOT_KEYS`) is there, and every string that looks like a key (64 lowercase hex digits) is a pinned root key or a key in the floor (`--set UPDATER_KEYS_FLOOR`, a file); both default to none, as in production. So a build pinned to another setup's keys fails |
 | `[elf]` (lin64, lin32) | ELF architecture; only the listed system libraries; no symbol versions newer than listed (`GLIBC_2.14`, `GLIBCXX_3.4.21`, ...) |
 | `[pe]` (win32) | i386 only; PE OS/subsystem version at most 4.0 (XP); only the listed system DLLs; the bundled toolchain files (Qt, MinGW runtime, OpenSSL, zlib) byte-identical (SHA-256s) |
 | `[macho]` (osx64-5.15.2) | x86_64 only; minimum macOS at most 10.13; nothing linked from outside the bundle, `/usr/lib`, `/System` |
@@ -729,9 +746,11 @@ R2, purge), 39 s.
     updater/deploy.py --config config/files2.env $STATE/releases-files2/<build>
     files/publish.py --config config/files2.env [--dry-run]
 
-files2 also has the new updater's tree, `updater/` (since 2026-11-01, build 5025): a shadow
-no Launcher reads yet, signed with files2's test keys (`UPDATER_*` in `config/files2.env`),
-its mirror list naming the files server first and the bucket second. Laminar's `launcher-files2` adds every new build to it.
+files2 also has the new updater's tree, `updater/` (since 2026-11-01, build 5025), signed
+with files2's test keys (`UPDATER_*` in `config/files2.env`), its mirror list naming the
+files server first and the bucket second. Laminar's `launcher-files2` adds every new build
+to it. Since 2026-11-04 files2's Launchers are built with the new updater
+(`UPDATER_VERSION=2`), pinned to files2's root keys, so they update from that tree.
 
 Seeded 2026-10-23 (as R2 only) from a copy of the live tree, with `update/config.json` (repoman's URLs)
 and every `update/<platform>/channels.json` pointed at files2. The Launcher takes the channel
@@ -898,7 +917,7 @@ builds `laminard` and `laminarc` in a container (`laminar/Containerfile`, podman
 system update can break them: Cap'n Proto (built there from its release, static), SQLite,
 zlib, libstdc++ and libgcc are linked in, and the only library left to load is glibc (built
 on Debian 13, they need 2.38 or newer; the build server has 2.44). Every input is pinned: the base image by digest, Cap'n
-Proto by checksum, Laminar by commit (1.4-3-g9d928cca; its CMake downloads its web UI's
+Proto by checksum, Laminar by commit (1.4-4-g9968f74a; its CMake downloads its web UI's
 scripts, checked by MD5). `build.sh` refuses binaries that load anything but glibc.
 
 ### Starting jobs (`daemon/trigger.py`, `host/builder/trigger.service`)

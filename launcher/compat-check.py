@@ -26,6 +26,14 @@ What a description holds, and what `check` does with it:
   [macho]  osx64*: archs: exactly these; max_minimum_macos; link_prefixes: libraries may
            only come from inside the bundle or these places
 
+`check` also checks the updater's keys in the main binary, against settings given with --set
+(launcher/release-build.py passes the setup's): UPDATER_ROOT_KEYS, the pinned root keys (hex,
+separated by spaces; default none, as in production until its root key ceremony), and
+UPDATER_KEYS_FLOOR, the keys document compiled in as the floor (a file; default none). Every
+pinned root key must be there, and every string that looks like a key (64 lowercase hex
+digits) must be one of the pinned root keys or a key in the floor. So a build pinned to
+another setup's keys (files2's test keys in a production build) fails.
+
 `check` also states what a machine needs to run the build, as measured in the binaries:
 `requires` in the --json output, the fields of a variant's `requires` in the new updater's
 build manifest (UpdaterFormats.md in the Design repo):
@@ -283,6 +291,7 @@ def check_build(platform, tree, expected, values):
         problems.append("unknown platform %s" % platform)
 
     check_urls(tree, expected["urls"], values, problems, facts)
+    check_updater_keys(tree, expected["urls"]["main_binary"], values, problems, facts)
     return problems, facts, requires
 
 
@@ -373,6 +382,30 @@ def check_urls(tree, expected, values, problems, facts):
     for url in required_urls(expected["required"], values):
         if url not in found:
             problems.append("URL missing from the main binary: %s" % url)
+
+
+KEY_RE = re.compile(rb"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])")
+
+
+def check_updater_keys(tree, rel, values, problems, facts):
+    """The pinned root keys are in the main binary, and no key-like string but them and the
+    floor's keys (see the module's help)."""
+    if rel not in tree:
+        return
+    roots = set(values.get("UPDATER_ROOT_KEYS", "").split())
+    allowed = set(roots)
+    floor_file = values.get("UPDATER_KEYS_FLOOR", "")
+    if floor_file:
+        with open(floor_file, "rb") as f:
+            floor = json.load(f)
+        allowed |= set(floor["root_keys"]) | set(floor["online_keys"])
+    with open(tree[rel], "rb") as f:
+        found = set(m.group().decode("ascii") for m in KEY_RE.finditer(f.read()))
+    facts["updater_keys"] = sorted(found)
+    for key in sorted(roots - found):
+        problems.append("pinned root key missing from the main binary: %s" % key)
+    for key in sorted(found - allowed):
+        problems.append("a key in the main binary that isn't this setup's: %s" % key)
 
 
 def required_urls(templates, values):

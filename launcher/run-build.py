@@ -39,6 +39,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     command = common.build_command(settings, plat, args.source.resolve(), out, args.build_number)
     with common.lock_build_output(out):
+        common.prepare_build_output(settings, out)
         sys.exit(subprocess.run(command).returncode)
 
 

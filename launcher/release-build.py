@@ -155,7 +155,9 @@ def resolve_commit(settings, branch, commit):
 
 
 def check_prerequisites(settings, platforms):
-    """The toolchain images, and the descriptions the compatibility gate checks against."""
+    """The toolchain images, the descriptions the compatibility gate checks against, and the
+    updater's settings (common.updater_floor)."""
+    common.updater_floor(settings)
     for p in platforms:
         image = settings[p.image_setting]
         if not common.image_exists(settings, image):
@@ -194,6 +196,7 @@ def build(settings, platforms, src, build_root, out, build_number):
         for p in platforms:
             (build_root / p.name).mkdir(parents=True, exist_ok=True)
             locks.enter_context(common.lock_build_output(build_root / p.name))
+            common.prepare_build_output(settings, build_root / p.name)
             command = common.build_command(settings, p, src, build_root / p.name, build_number)
             with open(out / ("build-%s.log" % p.name), "w") as logfile:
                 running[p.name] = subprocess.Popen(command, stdout=logfile, stderr=subprocess.STDOUT)
@@ -255,13 +258,16 @@ def gate(settings, platforms, src, build_root, out):
     for key in common.SITES:
         value = settings[key] if ("Launcher_" + key) in cmake else " ".join(settings.defaults[key].split())
         values += ["--set", "%s=%s" % (key, value)]
+    values += ["--set", "UPDATER_ROOT_KEYS=%s" % settings["UPDATER_ROOT_KEYS"]]
     passed = {}
     for p in platforms:
         tree = build_root / p.name / "install" / p.bundle
+        floor = build_root / p.name / common.UPDATER_FLOOR_FILE
         with open(out / ("compat-%s.txt" % p.name), "w") as report:
             result = subprocess.run([sys.executable, common.HOPPER / "launcher" / "compat-check.py", "check", p.name, tree,
                                      descriptions / ("%s.toml" % p.name),
-                                     "--json", out / ("compat-%s.json" % p.name)] + values, stdout=report)
+                                     "--json", out / ("compat-%s.json" % p.name)] + values
+                                    + ["--set", "UPDATER_KEYS_FLOOR=%s" % (floor if floor.exists() else "")], stdout=report)
         passed[p.name] = result.returncode == 0
         for line in (out / ("compat-%s.txt" % p.name)).read_text().splitlines():
             print("    " + line, file=sys.stderr)
@@ -285,6 +291,7 @@ def write_manifest(settings, platforms, branch, commit, build_number, incrementa
         "version_name": version_name(src),
         "mode": "incremental" if incremental else "clean",
         "updater_base": settings["UPDATER_BASE"],
+        "updater": {"version": int(settings["UPDATER_VERSION"]), "root_keys": settings["UPDATER_ROOT_KEYS"].split()},
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "platforms": {},
     }

@@ -24,7 +24,7 @@ format's write order, each replaced atomically, the tags document last; the tree
 once more as written. Nothing is published: files/publish.py publishes the tree.
 
 Refuses a release that isn't releasable, isn't a Launcher build, was built for another
-setup (its UPDATER_BASE), lacks a platform's requirements, or whose build number isn't
+setup (its UPDATER_BASE, or its updater and pinned root keys), lacks a platform's requirements, or whose build number isn't
 higher than the tree's Latest or was withdrawn. A bundle with anything the format can't
 express is refused too: a mode other than 0644 or 0755, a hard link, a special file, an
 empty directory. The current layout (update/, files/, downloads/) isn't touched.
@@ -73,6 +73,7 @@ def main():
     if manifest.get("updater_base") != settings["UPDATER_BASE"]:
         common.die("the release updates from %s, this setup is %s (wrong --config?)"
                    % (manifest.get("updater_base"), settings["UPDATER_BASE"]))
+    common.check_release_updater(settings, manifest, release)
     build = manifest["build_number"]
     platforms = [common.platform(name) for name in manifest["platforms"]]
     log("%srelease %d (%s): %s -> %s" % ("(dry run) " if args.dry_run else "", build, manifest["commit"][:10],

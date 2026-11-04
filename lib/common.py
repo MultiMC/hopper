@@ -418,13 +418,82 @@ def build_command(settings, plat, src, out, build_number):
     would ignore it, and ends the container with it), no network, as the calling user, source at /src (read-only), output at /out, the build
     steps (launcher/steps/) at /build (read-only), every setting plus PLATFORM and BUILD_NUMBER in the
     environment, command `bash /build/<script>`. The images contain only toolchains."""
-    env = {**settings, "PLATFORM": plat.name, "BUILD_NUMBER": str(build_number)}
+    env = {**settings, "PLATFORM": plat.name, "BUILD_NUMBER": str(build_number), "UPDATER_VARIANT": plat.variant}
     command = container_run(settings) + ["--network", "none",
                "-v", "%s:/src:ro" % src, "-v", "%s:/out" % out,
                "-v", "%s:/build:ro" % (HOPPER / "launcher" / "steps")]
     for key, value in env.items():
         command += ["-e", "%s=%s" % (key, value)]
     return command + [settings[plat.image_setting], "bash", "/build/" + plat.script]
+
+
+# --- the updater compiled into the Launchers ----------------------------------------------
+
+# In a platform's output directory: the keys document its build compiles in as the floor
+# (Launcher_UPDATER_KEYS_FLOOR, read by the build steps at /out/<this>); only with updater 2
+UPDATER_FLOOR_FILE = "updater-keys-floor.json"
+
+
+def updater_floor(settings):
+    """The keys document this setup's Launchers compile in as the floor (its bytes), or None
+    with updater 1 (UPDATER_VERSION). Refuses a setup that is only half set up for updater 2:
+    the tree must be at updater/ (where Launchers look for it on the files site), the keys
+    documents in UPDATER_KEYS must form a valid, unexpired chain, and UPDATER_ROOT_KEYS must
+    be exactly the newest one's root keys."""
+    version, roots = settings["UPDATER_VERSION"], settings["UPDATER_ROOT_KEYS"].split()
+    if version == "1":
+        if roots:
+            die("UPDATER_ROOT_KEYS is set, but UPDATER_VERSION is 1 (only updater 2 pins keys)")
+        return None
+    if version != "2":
+        die("UPDATER_VERSION must be 1 or 2, not %r" % version)
+    if settings["UPDATER_ROOT"] != "updater":
+        die("updater 2 needs UPDATER_ROOT=updater (Launchers look for the tree there), not %r" % settings["UPDATER_ROOT"])
+    if not roots:
+        die("updater 2 needs UPDATER_ROOT_KEYS")
+    # Here, not at the top: updater_tree imports this module
+    import updater_formats as formats
+    import updater_tree
+    documents = updater_tree.keys_documents(settings["UPDATER_KEYS"])
+    first, newest = documents[0][1], documents[-1]
+    try:
+        formats.verify_keys_chain(None, [(v, data, sig) for v, _, data, sig in documents],
+                                  datetime.datetime.now(datetime.timezone.utc), roots=first["root_keys"])
+    except formats.Invalid as e:
+        die("UPDATER_KEYS (%s): %s" % (settings["UPDATER_KEYS"], e))
+    if sorted(set(roots)) != sorted(roots) or set(roots) != set(newest[1]["root_keys"]):
+        die("UPDATER_ROOT_KEYS must be exactly the root keys of %s/%d.json, the newest keys document"
+            % (settings["UPDATER_KEYS"], newest[0]))
+    return newest[2]
+
+
+
+def release_updater(manifest):
+    """The updater a release's Launchers were built with: {"version", "root_keys"} from its
+    manifest; releases from before it was recorded used updater 1."""
+    return manifest.get("updater", {"version": 1, "root_keys": []})
+
+
+def check_release_updater(settings, manifest, release):
+    """Refuse a release whose Launchers use another updater or other pinned root keys than
+    this setup's (so, for example, a build pinned to files2's test keys can't be deployed
+    anywhere else)."""
+    built = release_updater(manifest)
+    setup = {"version": int(settings["UPDATER_VERSION"]), "root_keys": sorted(settings["UPDATER_ROOT_KEYS"].split())}
+    if built["version"] != setup["version"] or sorted(built["root_keys"]) != setup["root_keys"]:
+        die("%s was built with updater %d pinned to %s, this setup has updater %d pinned to %s (wrong --config?)"
+            % (release, built["version"], " ".join(built["root_keys"]) or "no keys",
+               setup["version"], " ".join(setup["root_keys"]) or "no keys"))
+
+def prepare_build_output(settings, out):
+    """Put what a build compiles in from outside the source into its output directory: the
+    updater's keys floor (or remove one left by an earlier build with updater 2)."""
+    floor = updater_floor(settings)
+    path = Path(out) / UPDATER_FLOOR_FILE
+    if floor is None:
+        path.unlink(missing_ok=True)
+    else:
+        path.write_bytes(floor)
 
 
 # --- the files tree (files.multimc.org) --------------------------------------------------
