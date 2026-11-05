@@ -19,7 +19,7 @@ What a description holds, and what `check` does with it:
   [elf]    lin*: machine: every ELF has it; system_libs: the only libraries from outside
            the bundle they may need; max_versions: no GLIBC_/GLIBCXX_/CXXABI_/GCC_ symbol
            version newer than these
-  [pe]     win32: machine: every PE has it (i386 = 332); max_os_version and
+  [pe]     win32*: machine: every PE has it (i386 = 332); max_os_version and
            max_subsystem_version (4.0 = XP); system_dlls: the only DLLs from outside the
            bundle they may import; [pe.sha256]: bundled files that must stay byte-identical
            (they come straight from the toolchain)
@@ -64,7 +64,7 @@ import time
 import tomllib
 import zipfile
 
-MAIN_BINARY = {"lin64": "bin/MultiMC", "lin32": "bin/MultiMC", "win32": "MultiMC.exe"}
+MAIN_BINARY = {"lin64": "bin/MultiMC", "lin32": "bin/MultiMC", "win32": "MultiMC.exe", "win32-5.15.2": "MultiMC.exe"}
 URL_RE = re.compile(rb"https?://[\x21-\x7e]+?(?=[\x00\"'<>\s]|$)")
 
 # Files we build ourselves; everything else in a Windows bundle comes from the toolchain.
@@ -283,7 +283,7 @@ def check_build(platform, tree, expected, values):
 
     if platform in ("lin64", "lin32"):
         check_linux(tree, expected["elf"], problems, facts, requires)
-    elif platform == "win32":
+    elif platform.startswith("win32"):
         check_windows(tree, expected["pe"], problems, facts, requires)
     elif platform.startswith("osx64"):
         check_macos(tree, expected["macho"], problems, facts, requires)
@@ -463,7 +463,7 @@ def write_description(platform, tree, source):
                 "max_versions = { %s }" % ", ".join("%s = %s" % (toml_string(k), toml_string(v))
                                                     for k, v in sorted(versions.items())),
                 ""]
-    elif platform == "win32":
+    elif platform.startswith("win32"):
         machines, os_max, sub_max, imports = windows_summary(tree)
         (machine,) = machines
         out += ["[pe]",

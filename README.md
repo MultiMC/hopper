@@ -17,7 +17,7 @@ directory down and is run from the top of the checkout, e.g.
 | Directory | What |
 |-----------|------|
 | `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing (text or `--json`), `top.py` shows it live in the terminal |
-| `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh`, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE |
+| `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh` for both Windows platforms, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
@@ -111,7 +111,7 @@ has no Docker access, since the `docker` group is equivalent to root.
 
 ## Building one platform
 
-    launcher/run-build.py [--config FILE] <lin64|lin32|win32|osx64-5.15.2> <source dir> <output dir> [build number]
+    launcher/run-build.py [--config FILE] <lin64|lin32|win32|win32-5.15.2|osx64-5.15.2> <source dir> <output dir> [build number]
 
 This builds the Launcher exactly like the releases, in the same toolchain image, and
 needs nothing from the build server. To do it yourself you need Linux, Docker (or rootless
@@ -125,7 +125,8 @@ podman: `CONTAINER_ENGINE=podman`), git and Python 3.12 or newer.
        docker pull ghcr.io/multimc/toolchains/linux-x64@sha256:7edb202c67b44e33b455fd89ac61d233bde534c5f127c10e6459a2c6c8548d35
        docker tag ghcr.io/multimc/toolchains/linux-x64@sha256:7edb202c67b44e33b455fd89ac61d233bde534c5f127c10e6459a2c6c8548d35 multimc/toolchains/linux-x64:dev
 
-   lin64 is 2.7 GB, lin32 2.6 GB, win32 7.7 GB. The macOS image can't be published (it
+   lin64 is 2.7 GB, lin32 2.6 GB, win32 7.7 GB; win32-5.15.2's image is win32's plus Qt 5.15.2
+   and MinGW 8.1 (Toolchains `containers/windows-win32-qt5.15`, not published yet). The macOS image can't be published (it
    contains Apple's SDK); its README in the Toolchains repo says how to build it yourself.
 
 2. **The source**, with submodules, on a branch:
@@ -147,14 +148,14 @@ podman: `CONTAINER_ENGINE=podman`), git and Python 3.12 or newer.
 
 The build number defaults to 9999, higher than any release so far, so the build's updater
 leaves it alone. The Linux builds run on the system's Qt 5, like the releases; the win32 build
-runs on Windows (XP and newer) or under Wine.
+runs on Windows (XP and newer) or under Wine, the win32-5.15.2 build on Windows 7 and newer.
 
 ### How it runs
 
 The source must be a git checkout on its branch (not detached), with submodules, so the
 commit and `refs/heads/<branch>` are embedded like in the TeamCity builds. The output
 directory gets `build/` (the build tree; reused unless `CLEAN=1`), `install/` (the bundle:
-`MultiMC/` or `MultiMC.app/`, always fresh) and `*.log`; win32 also keeps its Wine prefix
+`MultiMC/` or `MultiMC.app/`, always fresh) and `*.log`; the Windows builds also keep their Wine prefix
 there.
 
 Every platform runs the same way (`common.build_command`): its image (settings `IMAGE_*`,
@@ -334,7 +335,7 @@ reviewed. `describe` writes a description from an existing build; it was used on
 | `[urls]` | the listed URLs are embedded in the main binary; `"${NAME}"` is each base URL of the setting `NAME` (`FILES_MIRRORS`, `META_MIRRORS`) |
 | (no section) | the updater's keys in the main binary: every pinned root key (`--set UPDATER_ROOT_KEYS`) is there, and every string that looks like a key (64 lowercase hex digits) is a pinned root key or a key in the floor (`--set UPDATER_KEYS_FLOOR`, a file); both default to none, as in production. So a build pinned to another setup's keys fails |
 | `[elf]` (lin64, lin32) | ELF architecture; only the listed system libraries; no symbol versions newer than listed (`GLIBC_2.14`, `GLIBCXX_3.4.21`, ...) |
-| `[pe]` (win32) | i386 only; PE OS/subsystem version at most 4.0 (XP); only the listed system DLLs; the bundled toolchain files (Qt, MinGW runtime, OpenSSL, zlib) byte-identical (SHA-256s) |
+| `[pe]` (win32, win32-5.15.2) | i386 only; PE OS/subsystem version at most 4.0 (XP; 5.1 for win32-5.15.2, as MinGW 8.1 writes it); only the listed system DLLs; the bundled toolchain files (Qt, MinGW runtime, OpenSSL, zlib) byte-identical (SHA-256s) |
 | `[macho]` (osx64-5.15.2) | x86_64 only; minimum macOS at most 10.13; nothing linked from outside the bundle, `/usr/lib`, `/System` |
 
 `launcher/release-build.py` passes each site setting with `--set`: the build's own value if the
@@ -639,6 +640,7 @@ links, special files, empty directories, files outside the bundle directory).
 | lin64 | `linux-x86_64-qt5` |
 | lin32 | `linux-x86-qt5` |
 | win32 | `windows-x86-qt5.6` |
+| win32-5.15.2 | `windows-x86-qt5.15` |
 | osx64-5.15.2 | `macos-x86_64-qt5.15` |
 
 The variant IDs are in `lib/common.py` (`PLATFORMS`); a Launcher build has its own compiled

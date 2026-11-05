@@ -1,0 +1,184 @@
+# What a win32-5.15.2 build must look like; checked by launcher/compat-check.py (see its --help).
+# Generated on 2026-11-05 from the shipped mmc-develop-win32-5.15.2.zip (build 4249, the last one
+# TeamCity built), then edited by hand:
+# change it together with the Launcher change that needs it, and say why.
+
+[files]
+list = [
+    "MultiMC.exe",
+    "Qt5Core.dll",
+    "Qt5Gui.dll",
+    "Qt5Network.dll",
+    "Qt5Svg.dll",
+    "Qt5Widgets.dll",
+    "Qt5Xml.dll",
+    "iconengines/qsvgicon.dll",
+    "imageformats/qgif.dll",
+    "imageformats/qicns.dll",
+    "imageformats/qico.dll",
+    "imageformats/qjpeg.dll",
+    "imageformats/qsvg.dll",
+    "imageformats/qwbmp.dll",
+    "imageformats/qwebp.dll",  # WebP icons, Launcher GH-2633 (2026-11-05)
+    "jars/JavaCheck.jar",
+    "jars/NewLaunch.jar",
+    "libLauncher_iconfix.dll",
+    "libLauncher_nbt++.dll",
+    "libLauncher_nbt++.dll.a",
+    "libLauncher_quazip.dll",
+    "libLauncher_rainbow.dll",
+    "libcrypto-1_1.dll",
+    "libgcc_s_dw2-1.dll",
+    "libssl-1_1.dll",
+    "libssp-0.dll",
+    "libstdc++-6.dll",
+    "libwinpthread-1.dll",
+    "msvcr100.dll",  # the VC++ 2010 runtime for Qt's OpenSSL 1.1; not in build 4249 (2026-11-06)
+    "platforms/qwindows.dll",
+    "qt.conf",
+    "styles/qwindowsvistastyle.dll",
+    "zlib1.dll",
+]
+
+[pe]
+machine = 332  # i386
+max_os_version = "5.1"
+max_subsystem_version = "5.1"  # 5.1 = Windows XP, as MinGW 8.1 writes it; Qt 5.15 itself needs Windows 7
+system_dlls = [
+    "advapi32.dll",
+    "bcrypt.dll",
+    "crypt32.dll",
+    "d3d11.dll",
+    "dnsapi.dll",
+    "dwmapi.dll",
+    "dxgi.dll",
+    "gdi32.dll",
+    "imm32.dll",
+    "iphlpapi.dll",
+    "kernel32.dll",
+    "mpr.dll",
+    "msvcrt.dll",
+    "netapi32.dll",
+    "ole32.dll",
+    "oleaut32.dll",
+    "shell32.dll",
+    "user32.dll",
+    "userenv.dll",
+    "uxtheme.dll",
+    "version.dll",
+    "winmm.dll",
+    "ws2_32.dll",
+    "wtsapi32.dll",
+]
+
+[pe.sha256]
+# Bundled files from the toolchain (Qt, MinGW runtime, OpenSSL, zlib): byte-identical
+"Qt5Core.dll" = "bb88391d53cf771c58887cb54101b5dc638abeb84bce4beddd82be5fb4bae671"
+"Qt5Gui.dll" = "77f8946ac559cd03694d9a36ab4630cc7d5f0db62b34c00ecec12bc021eafbe9"
+"Qt5Network.dll" = "77f1bd3192d9e8b15dd23adb15a3f83e92e9474df9a30450247fbe9e96b71736"
+"Qt5Svg.dll" = "d7f56abfc93e7d4d5c79b568222f09ffeecdd08f4c18c2c17dfab00114dd40a0"
+"Qt5Widgets.dll" = "2f0c2a362f2ef318ce80e03e914981ad42a1751c74b534725a6bf3cf50ce03a3"
+"Qt5Xml.dll" = "887e6a1cd275b08de407cfdd486917c5f698c27ef759ff4fb77bf8474adc4ce9"
+"iconengines/qsvgicon.dll" = "aab86d4b897a38043f79c01ddbb5655e838dc3f907d9579ccce2b4a4299cd588"
+"imageformats/qgif.dll" = "2e10d125865572e4969a365999fec16a7157232352f34c9be448114b4c13ebb6"
+"imageformats/qicns.dll" = "dab35f7cf1241ed3cec03bd7fe21c19e188308dd271b71307b2b135c7ea6befb"
+"imageformats/qico.dll" = "09fa3fb14c3f2d5e0703bb4a7c0294b0fa43d0804e894fc428bcdcde5605cf27"
+"imageformats/qjpeg.dll" = "b15aeacee8e9d5490ee222c84ea2505e2c44893228e2b07e08158cdb9e01e6ab"
+"imageformats/qsvg.dll" = "de24ec415cd1bdbeaff32f10f5cad3315cc548b4de2acd8ed3a0386a8c772aae"
+"imageformats/qwbmp.dll" = "d1903311c33a9f29af3b9a71f6f2534f1dca03627214d032133064586aa34b3e"
+"imageformats/qwebp.dll" = "91f7d473eafaf19b3aee127375086397429cbe171c4faabaa5a596df28cc45c9"
+"libcrypto-1_1.dll" = "2685f4c9bfc89bdf7d0a7a8e2b2db4c661209804d5006dc2ea57336c8567eadb"
+"libgcc_s_dw2-1.dll" = "59a466f77584438fc3abc0f43edc0fc99d41851726827a008841f05cfe12da7e"
+"libssl-1_1.dll" = "5f13872a0a947ea890560ea86f6fda0f5955fb59b0f477ca7bfcbec0636e4441"
+"libssp-0.dll" = "166235019ca549c6a03e2bbddd5a503f78aed08151da72b295ae1b6dceb5648f"
+"libstdc++-6.dll" = "672458902acead23b1a4dbca8b26e51324e88948196bc30d68703d45547898e8"
+"libwinpthread-1.dll" = "0b5532f93126db45689d7e3162cfc6951f78738a182e52712bb2c71980468f23"
+"msvcr100.dll" = "60c06e0fa4449314da3a0a87c1a9d9577df99226f943637e06f61188e5862efa"
+"platforms/qwindows.dll" = "bd092da50a3d1d5113d0f5404bc8854faabc4875dd3247c81c4267fe8599e338"
+"qt.conf" = "36a9e7f1c95b82ffb99743e0c5c4ce95d83c9a430aac59f84ef3cbfab6145068"
+"styles/qwindowsvistastyle.dll" = "5e6bfaf6dcd4446ff34a6a385652923c470037963235072e624887d1bca98565"
+"zlib1.dll" = "e96b397b499d9eaa3f52eaf496ca8941e80c0ad1544879ccadf02bf2c6a1ecfc"
+
+[urls]
+main_binary = "MultiMC.exe"
+# "${NAME}" is each base URL of the setting NAME (FILES_MIRRORS, META_MIRRORS)
+required = [
+    # Our sites (Launcher_FILES_MIRRORS, Launcher_META_MIRRORS, 2026-11-03): the Launcher
+    # builds every URL on them from a base URL and a path, so the old ${UPDATER_BASE},
+    # ${NOTIFICATION_URL}, ${TRANSLATIONS_BASE_URL}, https://files.multimc.org/fmllibs/,
+    # https://files.multimc.org/patrons.txt and https://meta.multimc.org/v1/ are gone
+    "${FILES_MIRRORS}",
+    "${META_MIRRORS}",
+    "http://api.technicpack.net/modpack/",
+    "http://auth.xboxlive.com",
+    "http://creativecommons.org/licenses/by-sa/3.0/",
+    "http://creativecommons.org/licenses/publicdomain/",
+    "http://creativecommons.org/ns#",
+    "http://creativecommons.org/ns#DerivativeWorks",
+    "http://creativecommons.org/ns#Distribution",
+    "http://creativecommons.org/ns#Reproduction",
+    "http://ns.adobe.com/tiff/1.0/",
+    "http://ns.adobe.com/xap/1.0/",
+    "http://ns.adobe.com/xap/1.0/mm/",
+    "http://ns.adobe.com/xap/1.0/sType/ResourceEvent#",
+    "http://ns.adobe.com/xap/1.0/sType/ResourceRef#",
+    "http://openclipart.org/",
+    "http://openclipart.org/detail/170182/golden-picture-frame-by-tasper",
+    "http://purl.org/dc/dcmitype/StillImage",
+    "http://purl.org/dc/elements/1.1/",
+    "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd",
+    "http://textures.minecraft.net",
+    "http://www.gimp.org/xmp/",
+    "http://www.inkscape.org/)",
+    "http://www.inkscape.org/namespaces/inkscape",
+    "http://www.minecraftforge.net/forum/",
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "http://www.w3.org/1999/xlink",
+    "http://www.w3.org/2000/svg",
+    "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd",
+    "http://xboxlive.com",
+    "https://%1?build=%2",
+    "https://api.github.com/repos/MultiMC/Launcher/compare/%1...develop",
+    "https://api.imgur.com/3/",
+    "https://api.minecraftservices.com",
+    "https://api.modrinth.com/v2/project/",
+    "https://api.modrinth.com/v2/search?facets=[[%22project_type:modpack%22]]&index=%1&limit=25&offset=%2",
+    "https://api.modrinth.com/v2/search?facets=[[%22project_type:modpack%22]]&index=%1&limit=25&offset=%2&query=%3",
+    "https://api.modrinth.com/v2/version_files",
+    "https://api.paste.ee/v1/pastes",
+    "https://api.technicpack.net/",
+    "https://api.technicpack.net/modpack/",
+    "https://discord.gg/GtPmv93",
+    "https://discord.gg/multimc",
+    "https://dist.creeper.host/FTB2/",
+    "https://download.nodecdn.net/containers/atl/",
+    "https://github.com/MultiMC/Launcher",
+    "https://github.com/MultiMC/Launcher/issues",
+    "https://github.com/MultiMC/Launcher/issues/%1",
+    "https://github.com/MultiMC/Launcher/issues/\\1",
+    "https://github.com/MultiMC/Launcher/wiki/",
+    "https://github.com/MultiMC/Launcher/wiki/Translating-MultiMC",
+    "https://help.minecraft.net/hc/en-us/articles/4408968616077",
+    "https://imgur.com/a/%1",
+    "https://launchermeta.mojang.com/mc/assets/legacy/c0fd82e8ce9fbc93119e40d96d5a4e62cfa3f729/legacy.json",
+    "https://libraries.minecraft.net/",
+    "https://login.live.com/login.srf",
+    "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode",
+    "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+    "https://multimc.org/posts.html",
+    "https://multimc.org/rss.xml",
+    "https://paste.ee",
+    "https://profile.xboxlive.com/users/me/profile/settings",
+    "https://resources.download.minecraft.net/",
+    "https://s3.amazonaws.com/Minecraft.Download/indexes/",
+    "https://sessionserver.mojang.com",
+    "https://user.auth.xboxlive.com/user/authenticate",
+    "https://visualvm.github.io/",
+    "https://www.ej-technologies.com/products/jprofiler/overview.html",
+    "https://www.mcedit.net/",
+    "https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc",
+    "https://www.minecraft.net/en-us/store/minecraft-java-edition",
+    "https://www.patreon.com/multimc",
+    "https://www.reddit.com/r/MultiMC/",
+    "https://xsts.auth.xboxlive.com/xsts/authorize",
+]

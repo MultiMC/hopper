@@ -1,8 +1,10 @@
 #!/bin/bash
 # In-container build for win32 (image windows-win32: GE-Proton10-15 and the old Win7 build
 # VM's toolchain in $TOOLS: Qt 5.6.3 + MinGW 4.9.2, CMake 3.20.1, GnuWin32 zlib,
-# OpenSSL 1.0; plus the image's own dumpbin /dependents and Temurin JDK 8). Mirrors the
-# TeamCity Windows build, under Wine.
+# OpenSSL 1.0; plus the image's own dumpbin /dependents and Temurin JDK 8) and win32-5.15.2
+# (image windows-win32-qt5.15: the same, plus the VM's Qt 5.15.2 + MinGW 8.1.0 and OpenSSL
+# 1.1 with the VC++ 2010 runtime in $TOOLS/QtX, used instead of Qt 5.6.3, MinGW 4.9.2 and
+# OpenSSL 1.0). Mirrors the TeamCity Windows builds, under Wine.
 #
 # Contract (same for every platform, see common.build_command in lib/common.py): source in /src (read-only),
 # output in /out: build tree /out/build, install tree /out/install/MultiMC, logs
@@ -29,10 +31,26 @@ ln -sfn /out "$WINEPREFIX/dosdevices/o:"
 
 # The image says where its JDK is; images from before 2026-10-30 have the VM's at a fixed path.
 JDK=${JDK:-'T:\jdk1.8.0_112'}
-export WINEPATH='T:\Qt\Tools\mingw492_32\bin;T:\Qt\5.6.3\mingw49_32\bin;T:\Tools;T:\GnuWin32\bin;'"$JDK"'\bin'
+case "$PLATFORM" in
+    win32)
+        MINGW='T:\Qt\Tools\mingw492_32'
+        QT='T:\Qt\5.6.3\mingw49_32'
+        OPENSSL_DLLS=("$TOOLS/OpenSSL-Win32/libeay32.dll" "$TOOLS/OpenSSL-Win32/ssleay32.dll")
+        ;;
+    win32-5.15.2)
+        MINGW='T:\QtX\Tools\mingw810_32'
+        QT='T:\QtX\5.15.2\mingw81_32'
+        # Qt's OpenSSL 1.1 needs the VC++ 2010 runtime, which Windows doesn't have by itself
+        OPENSSL_DLLS=("$TOOLS/QtX/Tools/OpenSSL/Win_x86/bin/libcrypto-1_1.dll" "$TOOLS/QtX/Tools/OpenSSL/Win_x86/bin/libssl-1_1.dll"
+                      "$TOOLS/QtX/vcredist/x86/msvcr100.dll")
+        ;;
+    *)
+        echo "win32.sh doesn't build $PLATFORM"; exit 1
+        ;;
+esac
+export WINEPATH="$MINGW"'\bin;'"$QT"'\bin;T:\Tools;T:\GnuWin32\bin;'"$JDK"'\bin'
 export JAVA_HOME="$JDK"
 CMAKE='T:\CMake-3.20.1\bin\cmake.exe'
-QT='T:\Qt\5.6.3\mingw49_32'
 
 # The updater's keys floor, put next to the build by common.prepare_build_output (updater 2
 # only)
@@ -74,5 +92,5 @@ $WINE "$CMAKE" --build . -- -j"${JOBS:-$(nproc)}" > /out/build.log 2>&1 \
 $WINE 'T:\CMake-3.20.1\bin\ctest.exe' > /out/test.log 2>&1 || { tail -30 /out/test.log; echo "TESTS FAILED"; exit 1; }
 tail -3 /out/test.log
 $WINE "$CMAKE" --install . > /out/install.log 2>&1 || { tail -40 /out/install.log; exit 1; }
-cp "$TOOLS/OpenSSL-Win32/libeay32.dll" "$TOOLS/OpenSSL-Win32/ssleay32.dll" /out/install/MultiMC/
+cp "${OPENSSL_DLLS[@]}" /out/install/MultiMC/
 echo "INSTALL OK"

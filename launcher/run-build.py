@@ -3,7 +3,7 @@
 
     launcher/run-build.py [--config FILE] <platform> <source dir> <output dir> [build number]
 
-platform     lin64, lin32, win32 or osx64-5.15.2
+platform     lin64, lin32, win32, win32-5.15.2 or osx64-5.15.2
 source dir   a git checkout on its branch (not detached), with submodules, so the commit
              and branch get embedded like in the TeamCity builds
 output dir   gets build/ (kept between runs unless CLEAN=1), install/, *.log
