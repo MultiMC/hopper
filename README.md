@@ -714,6 +714,16 @@ Tests (btrfs, like the publisher's):
 
     python3 -m unittest updater/test_tags.py
 
+Verified 2026-11-05 on files2 (from the build server, then `files/publish.py`): `tag.py
+stable 5025` and `testing 5025` wrote the missing downloads without moving a tag (the
+archives hold exactly the files of 5025's release packages, lin64 and win32 compared);
+Testing to 5035 and Stable to 5034 (serial 13, `archive/5034/`); backward moves and removing
+the Stable build refused; `remove.py 5026` withdrew it and removed its manifest and the 14
+content files only it listed; `prune.py` found 180 MB of 4096 MB and purged nothing. Both
+copies (the files server and the bucket) then served the same tags document, 404 for
+`builds/5026.json`, the same new downloads, and the current layout's `mmc-stable-*`
+unchanged; the tree passed `updater/validate.py tree`.
+
 ## The updater's keys (`keys/`)
 
     keys/make-key.py <name>
