@@ -63,6 +63,41 @@ class Tree:
         path = self.root / name
         return path.read_bytes() if path.is_file() else None
 
+    def builds(self):
+        """The numbers of the builds in the tree, ascending."""
+        directory = self.root / "builds"
+        if not directory.is_dir():
+            return []
+        return sorted(formats.kind_of("builds/" + p.name)[1] for p in directory.iterdir() if p.name.endswith(".json"))
+
+    def build(self, number):
+        """A build's manifest as it is in the tree."""
+        name = "builds/%d.json" % number
+        data = self.read(name)
+        if data is None:
+            common.die("build %d isn't in the tree %s" % (number, self.root))
+        return formats.check_document(name, data)
+
+    def content_sizes(self, numbers):
+        """{sha256: size} of the content files the given builds list."""
+        listed = {}
+        for number in numbers:
+            listed.update(formats.content_files(self.build(number)))
+        return listed
+
+    def removal_changes(self, removed, kept):
+        """Changes that take the builds `removed` out of the tree: their manifests and
+        signatures, and the content files no build in `kept` lists (None: remove)."""
+        changes = {}
+        for number in removed:
+            changes["builds/%d.json" % number] = None
+            changes["builds/%d.json.sig" % number] = None
+        still_listed = self.content_sizes(kept)
+        for sha256 in self.content_sizes(removed):
+            if sha256 not in still_listed:
+                changes[formats.content_path(sha256)] = None
+        return changes
+
     def tags(self):
         """The tags document as it is, or None for a tree without one (a new tree)."""
         data = self.read("tags.json")
@@ -124,14 +159,17 @@ class Tree:
     def commit(self, changes):
         """Write the changes in the write order: content files, build manifests, keys
         documents and the mirror list, the tags document last. Each file is replaced
-        atomically. The caller holds the files tree's lock and has checked them (gate)."""
+        atomically. Then remove the files whose change is None, the other way round: build
+        manifests (each before its signature), then content files; so a removal's new tags
+        document is written before the builds it no longer names go. The caller holds the
+        files tree's lock and has checked them (gate)."""
         incoming = self.root / INCOMING
         if incoming.exists():
             shutil.rmtree(incoming)
         incoming.mkdir(parents=True)
         written = 0
         try:
-            for name in sorted(changes, key=write_order):
+            for name in sorted((n for n in changes if changes[n] is not None), key=write_order):
                 source = changes[name]
                 target = self.root / name
                 temporary = incoming / name.replace("/", "_")
@@ -145,6 +183,12 @@ class Tree:
                 written += 1
         finally:
             shutil.rmtree(incoming)
+        for name in sorted((n for n in changes if changes[n] is None), key=removal_order):
+            target = self.root / name
+            target.unlink(missing_ok=True)
+            if name.startswith("files/") and not any(target.parent.iterdir()):
+                target.parent.rmdir()
+            written += 1
         return written
 
     def clean_incoming(self):
@@ -171,6 +215,15 @@ def write_order(name):
     return (stage, name)
 
 
+def removal_order(name):
+    """Build manifests (a document before its signature), then content files."""
+    if name.startswith("builds/"):
+        return (0, name)
+    if name.startswith("files/"):
+        return (1, name)
+    raise ValueError("%s can't be removed from the tree" % name)
+
+
 def keys_documents(directory):
     """The setup's keys documents, [(version, doc, bytes, signature bytes)] from 1 to N.
     The validator checks their chain and signatures with the rest of the tree."""
@@ -190,6 +243,10 @@ def keys_documents(directory):
     if not found or sorted(found) != list(range(1, len(found) + 1)):
         common.die("%s: the keys documents must be 1.json to N.json without gaps" % directory)
     return [found[v] for v in sorted(found)]
+
+
+def show_tags(tags):
+    return "latest %d, testing %d, stable %d" % (tags["latest"], tags["testing"], tags["stable"])
 
 
 def now():

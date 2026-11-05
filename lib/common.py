@@ -555,6 +555,11 @@ def snapshot_files(settings, label, kind="manual", about=""):
     directory = snapshots_dir(settings)
     directory.mkdir(exist_ok=True)
     snapshot = directory / ("%s-%s" % (time.strftime("%Y%m%d-%H%M%S"), label))
+    # Two snapshots with the same label in one second (two quick runs) get -2, -3, ...
+    name, n = snapshot.name, 1
+    while snapshot.exists() or Path(str(snapshot) + ".json").exists():
+        n += 1
+        snapshot = directory / ("%s-%d" % (name, n))
     run("btrfs", "subvolume", "snapshot", "-r", root, snapshot, stdout=subprocess.DEVNULL)
     info = {"created": now(), "kind": kind, "about": about}
     Path(str(snapshot) + ".json").write_text(json.dumps(info, indent=2) + "\n")

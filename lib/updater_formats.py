@@ -566,8 +566,8 @@ def trusted_keys(name, doc, keys_doc):
 
 
 class _Files:
-    """The files of a tree: what is on disk under root, with the overlay ({name: bytes, or the
-    Path of a file holding them}) written over it."""
+    """The files of a tree: what is on disk under root, with the overlay ({name: bytes, the
+    Path of a file holding them, or None for a file removed}) written over it."""
 
     def __init__(self, root, overlay):
         self.root = Path(root)
@@ -582,7 +582,8 @@ class _Files:
                     raise Invalid("%s is a symbolic link" % name)
                 if not p.is_dir():
                     on_disk.add(name)
-        return sorted(on_disk | set(self.overlay))
+        removed = {name for name, source in self.overlay.items() if source is None}
+        return sorted((on_disk | set(self.overlay)) - removed)
 
     def path(self, name):
         source = self.overlay.get(name, self.root / name)
@@ -598,6 +599,8 @@ class _Files:
         source = self.overlay.get(name)
         if isinstance(source, bytes):
             return source
+        if name in self.overlay and source is None:
+            raise Invalid("%s is missing" % name)
         try:
             return self.path(name).read_bytes()
         except FileNotFoundError:
@@ -624,8 +627,9 @@ def _signed(files, name, keys_doc):
 
 def check_tree(root, floor, now=None, hashes=True, overlay=None):
     """Check the tree at root against the keys document a Launcher would embed (its bytes).
-    With an overlay ({name: bytes, or the Path of a file holding them}), the tree is checked
-    as it would be with those files written, before anything is written. Returns (summary,
+    With an overlay ({name: bytes, the Path of a file holding them, or None for a file
+    removed}), the tree is checked as it would be with those changes made, before anything
+    is written. Returns (summary,
     warnings); raises Invalid on the first problem."""
     files = _Files(root, overlay)
     now = now or datetime.datetime.now(datetime.timezone.utc)

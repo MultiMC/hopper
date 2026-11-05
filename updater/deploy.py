@@ -21,13 +21,16 @@ Before anything is written, the whole tree as it would be is checked with the va
 (lib/updater_formats.py); if that fails, nothing is written. Then the tree is snapshotted
 (files/snapshots.py lists and restores the snapshots) and the files are written in the
 format's write order, each replaced atomically, the tags document last; the tree is checked
-once more as written. Nothing is published: files/publish.py publishes the tree.
+once more as written. Then the download archives of the tags that moved are written from
+the tree (lib/updater_downloads.py): downloads/updater/mmc-latest-<platform>, and on a new tree also
+Testing's and Stable's, and Stable's archive. Nothing is published: files/publish.py
+publishes the tree and the downloads.
 
 Refuses a release that isn't releasable, isn't a Launcher build, was built for another
 setup (its UPDATER_BASE, or its updater and pinned root keys), lacks a platform's requirements, or whose build number isn't
 higher than the tree's Latest or was withdrawn. A bundle with anything the format can't
 express is refused too: a mode other than 0644 or 0755, a hard link, a special file, an
-empty directory. The current layout (update/, files/, downloads/) isn't touched.
+empty directory. The current layout (update/, files/, the mmc-* downloads) isn't touched.
 
 --dry-run   checks everything and shows what would be written, writes nothing
 --if-configured
@@ -45,6 +48,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 import common
+import updater_downloads as downloads
 import updater_formats as formats
 import updater_tree
 
@@ -131,6 +135,13 @@ def main():
         except formats.Invalid as e:
             common.die("the tree as written isn't valid: %s; don't publish it (files/snapshots.py restore %s)"
                        % (e, snapshot.name))
+        written_downloads = []
+        for tag in ("latest", "testing", "stable"):
+            if not current or current["tags"][tag] != tags[tag]:
+                written_downloads += downloads.write_tag(settings, tree, tag, tags[tag])
+        if not current:
+            written_downloads += downloads.write_archive(settings, tree, build)
+        log("download archives: %s" % " ".join(str(path.relative_to(settings["FILES_ROOT"])) for path in written_downloads))
     log("deployed build %d to %s (not published): %d files written; %s" % (build, tree.root, written, summary))
 
 

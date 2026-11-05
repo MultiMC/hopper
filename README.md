@@ -22,7 +22,7 @@ directory down and is run from the top of the checkout, e.g.
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
 | `files/` | The files tree (files.multimc.org), shared by the Launcher, translations and Patreon releases: `deploy.py` deploys a release into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
-| `updater/` | The new updater's tree (the Design repo's `UpdaterFormats.md`): `deploy.py` deploys a Launcher release into it (the new layout's publisher); `validate.py` checks a document or a whole tree against the format; `test_deploy.py` and `test_formats.py` their tests |
+| `updater/` | The new updater's tree (the Design repo's `UpdaterFormats.md`): `deploy.py` deploys a Launcher release into it (the new layout's publisher); `tag.py`, `remove.py` and `prune.py` move the Testing and Stable tags, remove a build and keep the tree under its size cap; `validate.py` checks a document or a whole tree against the format; `test_*.py` their tests |
 | `keys/` | The new updater's signing keys, one script per step of the offline key ceremony: `make-key.py` makes a key pair, `write-keys.py` writes a keys document, `sign.py` signs a document, `verify.py` checks keys documents and signed documents; `test_keys.py` their tests |
 | `laminar/` | Laminar, which runs the jobs: `cfg/`, its config (`jobs/<job>.run` and `.conf`, `contexts/`), linked as `~/laminar/cfg`; `build.sh` and `Containerfile` build its binaries, linked against nothing but glibc |
 | `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree; `updater_formats.py`, the new updater's formats: checking, signing, the keys chain; `updater_tree.py`, a setup's new updater tree: new documents signed, the tree checked as it would be, then written in the format's order |
@@ -644,11 +644,12 @@ links, special files, empty directories, files outside the bundle directory).
 The variant IDs are in `lib/common.py` (`PLATFORMS`); a Launcher build has its own compiled
 in and matches it as a whole string. No variant supersedes another yet.
 
+It also writes the download archives of the tags that moved (Latest; on a new tree all
+three, and Stable's archive), see Tag operations below.
+
 Not done here: re-signing the documents already in the tree after the online key is
 rotated (until then a publish with the new key is refused: the old documents no longer
-verify), and the tag operations (Testing, Stable, removing builds, retention, download
-archives), which come next as scripts of their own on `lib/updater_tree.py`: new documents
-from `Tree.sign`, checked with `Tree.gate`, written with `Tree.commit`.
+verify).
 
 Tests, with throwaway keys, on btrfs subvolumes made in `HOPPER_TEST_DIR` (default `$STATE`;
 skipped elsewhere):
@@ -664,6 +665,54 @@ keys document as the floor. In the tests: the next build stores only new content
 Latest alone; a build that isn't newer, a bad bundle, a wrong setup, an online key outside
 the keys document, a differing keys document and a corrupt content file already in the tree
 are refused with the tree unchanged.
+
+## Tag operations (`updater/tag.py`, `updater/remove.py`, `updater/prune.py`)
+
+    updater/tag.py [--config FILE] [--dry-run] testing|stable <build>
+    updater/remove.py [--config FILE] [--dry-run] <build>
+    updater/prune.py [--config FILE] [--dry-run] [--if-configured]
+
+Component 5 of `Updater.md` in the Design repo: moving the Testing and Stable tags, removing
+a build, and keeping the tree under its size cap. Each works like `updater/deploy.py`, on
+`lib/updater_tree.py`: the new documents are signed with the online key (`Tree.sign`), the
+whole tree as it would be is checked with the validator (`Tree.gate`), and only then is the
+files tree snapshotted and written (`Tree.commit`); `--dry-run` stops before writing. None
+of them publishes: `files/publish.py` does, removals included.
+
+- **`tag.py testing <build>`**: the build becomes Testing. Tags only move forward: it must
+  be newer than the current Testing build (and so than Stable). A bad Testing build is
+  replaced by a newer one, or removed.
+- **`tag.py stable <build>`**: any build newer than the current Stable becomes Stable; when
+  Testing is then older, it moves along (Testing resolves to Stable).
+- **`remove.py <build>`**: takes a build out for good. It goes into the tags document's
+  `withdrawn`, a tag that names it moves back (Latest to the highest build left, Testing to
+  the newest left between Stable and it), and its manifest and the content files no other
+  build lists are removed, in the format's removal order (tags document first). The Stable
+  build can't be removed: promote a replacement first. Launchers on it stay on it.
+- **`prune.py`**: the retention. Builds a tag names, and builds that have been Stable, are
+  never purged; while the content files only the other builds list are over
+  `UPDATER_MAX_SIZE_MB` (4096), the oldest of those goes. A purged build isn't withdrawn and
+  no tag moves; a Launcher on it still updates (it can't tell which files the next build
+  dropped). Laminar's release job runs it after `updater/deploy.py`.
+- A build, the tag's build, or a withdrawn build named where it doesn't fit is refused with
+  the tree unchanged. Naming the build a tag already has changes no tags and writes that
+  tag's download archives again.
+
+**Download archives** (`lib/updater_downloads.py`): every tag move writes
+`downloads/updater/mmc-<tag>-<platform>.<tar.gz|zip>` for the tag's build, and Stable also
+`downloads/updater/archive/<build>/mmc-<build>-<platform>...`, kept for good: the archive is also the
+record of which builds have been Stable, which `prune.py` never purges (a Stable build
+without one, such as the first, set by `updater/deploy.py` before there were archives, gets
+it when Stable moves on). They are made from the tree itself, the manifest and its content
+files, so a download holds exactly what Launchers install: the bundle's top directory,
+entries in path order, owned by root, every time the build's `built` time, so the same build
+always gives the same bytes. They are not part of the updater's tree; `files/publish.py`
+publishes them with the rest of `downloads/`. The current layout's `mmc-develop-*` downloads
+are unchanged.
+
+Tests (btrfs, like the publisher's):
+
+    python3 -m unittest updater/test_tags.py
 
 ## The updater's keys (`keys/`)
 
