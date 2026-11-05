@@ -18,6 +18,7 @@ list = [
     "imageformats/qjpeg.dll",
     "imageformats/qsvg.dll",
     "imageformats/qwbmp.dll",
+    "imageformats/qwebp.dll",  # WebP icons, Launcher GH-2633 (2026-11-05)
     "jars/JavaCheck.jar",
     "jars/NewLaunch.jar",
     "libLauncher_iconfix.dll",
@@ -73,6 +74,7 @@ system_dlls = [
 "imageformats/qjpeg.dll" = "a55cb801a07932d263c980b14abdb464acd8150b9258260efdf535634bfe9811"
 "imageformats/qsvg.dll" = "c818b37d77c84e3a9963a761bae3eefc73cccd3485ee6cb1c085c670041e9c59"
 "imageformats/qwbmp.dll" = "e7bdd9c34a62b3b46d8e7d224be3f5f7607a27634a8a6fd4f85549869f2d1145"
+"imageformats/qwebp.dll" = "8049380b491fac146c6fdaf01888045f53fb4cef223124298f7a0ebea6bd2115"
 "libeay32.dll" = "2f20c026052e5fa19cef41ffe0efcf24d8a0b72b111836b752c5a5233a3bba24"
 "libgcc_s_dw2-1.dll" = "f0614835136413217ed3baec9ba22aaac4c37956afcb0209f1f89b7676ae86bc"
 "libssp-0.dll" = "17329c4c19e8f23cde9c99155eb3f8759f8d2383ad856c32a51b3b9fa2846811"

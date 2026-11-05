@@ -42,6 +42,7 @@ list = [
     "Contents/MacOS/imageformats/libqmacjp2.dylib",
     "Contents/MacOS/imageformats/libqsvg.dylib",
     "Contents/MacOS/imageformats/libqwbmp.dylib",
+    "Contents/MacOS/imageformats/libqwebp.dylib",  # WebP icons, Launcher GH-2633 (2026-11-05)
     "Contents/MacOS/jars/JavaCheck.jar",
     "Contents/MacOS/jars/NewLaunch.jar",
     "Contents/MacOS/libLauncher_iconfix.dylib",
