@@ -12,7 +12,8 @@
 <nav class="top">
   <a class="brand" href="/">hopper</a>
   <a href="/runs">Runs</a>
-  <a href="/old-layout">Old layout</a>
+  {{with .Overview}}{{range .Setups}}<a href="/builds/{{.Name}}">{{.Name}}</a>
+  {{end}}{{end}}<a href="/old-layout">Old layout</a>
   <span class="stale" id="stale" hidden>not updating</span>
 </nav>
 <main{{if .Refresh}} data-refresh{{end}}>

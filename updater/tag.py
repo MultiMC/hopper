@@ -2,14 +2,18 @@
 """Move the new updater's Testing or Stable tag (the Design repo's Updater.md, "Tag-based
 releases and promotion"; the tags document in UpdaterFormats.md).
 
-    updater/tag.py [--config FILE] [--dry-run] testing <build>
-    updater/tag.py [--config FILE] [--dry-run] stable <build>
+    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] testing <build>
+    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] stable <build>
+    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] testing <build> stable <build>
 
 testing  the build becomes the Testing build. It must be newer than the current Testing
          build (and so than Stable): tags only move forward. A bad Testing build is
          replaced by a newer one, or removed (updater/remove.py).
 stable   the build becomes Stable: any build newer than the current Stable. When Testing is
          then older than it, Testing moves to it too (Testing resolves to Stable).
+
+Both named at once are one move, one new tags document: Testing must not be older than the
+new Stable.
 
 The build must be in the tree and not withdrawn. The tags document is rewritten with its
 serial one higher and signed with the online key; the tree as it would be is checked with
@@ -23,9 +27,13 @@ Naming the build a tag already has changes no tags; it writes that tag's downloa
 again (after an interrupted run, say). Nothing is published: files/publish.py does that.
 
 --dry-run   checks everything and shows the tags as they would be, writes nothing
+--serial N  refuse unless the tags document's serial is N: the tags are still those someone
+            decided on (any deployed build moves Latest, and so the serial, too)
+--json      at the end, print what was done, or would be, as JSON on stdout
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -44,9 +52,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", help="settings file overriding defaults.env")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("tag", choices=("testing", "stable"))
-    parser.add_argument("build", type=int)
+    parser.add_argument("--serial", type=int)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("moves", nargs="+", metavar="TAG BUILD")
     args = parser.parse_args()
+    named = parse_moves(args.moves)
 
     settings = common.load_settings(args.config)
     tree = updater_tree.Tree(settings)
@@ -54,28 +64,26 @@ def main():
         current = tree.tags()
         if current is None:
             common.die("%s has no tags document yet; updater/deploy.py starts a tree" % tree.root)
-        tags, build = dict(current["tags"]), args.build
-        if build in current["withdrawn"]:
-            common.die("build %d was withdrawn" % build)
-        if build not in tree.builds():
-            common.die("build %d isn't in the tree %s" % (build, tree.root))
+        if args.serial is not None and current["serial"] != args.serial:
+            common.die("the tags have changed: their serial is %d, not %d" % (current["serial"], args.serial))
+        tags = dict(current["tags"])
         old_stable = tags["stable"]
-
-        if tags[args.tag] == build:
-            log("%s is already build %d; writing its download archives again" % (args.tag, build))
-            moved = [args.tag]
-        else:
-            if args.tag == "testing":
-                # Testing is never older than Stable, so this keeps it newer than Stable too
-                if build < tags["testing"]:
-                    common.die("Testing is build %d; tags only move forward, %d is older" % (tags["testing"], build))
-                tags["testing"] = build
-            else:
-                if build < tags["stable"]:
-                    common.die("Stable is build %d; tags only move forward, %d is older" % (tags["stable"], build))
-                tags["stable"] = build
-                tags["testing"] = max(tags["testing"], build)
-            moved = [tag for tag in ("testing", "stable") if tags[tag] != current["tags"][tag]]
+        for tag, build in named.items():
+            if build in current["withdrawn"]:
+                common.die("build %d was withdrawn" % build)
+            if build not in tree.builds():
+                common.die("build %d isn't in the tree %s" % (build, tree.root))
+            if tags[tag] == build:
+                log("%s is already build %d; writing its download archives again" % (tag, build))
+            elif build < tags[tag]:
+                common.die("%s is build %d; tags only move forward, %d is older" % (tag.capitalize(), tags[tag], build))
+            tags[tag] = build
+        if "stable" in named:
+            if "testing" in named and named["testing"] < tags["stable"]:
+                common.die("Testing can't be older than Stable: %d, %d" % (named["testing"], tags["stable"]))
+            # Testing is never older than Stable; that also keeps a Testing move newer than Stable
+            tags["testing"] = max(tags["testing"], tags["stable"])
+        moved = [tag for tag in ("testing", "stable") if tags[tag] != current["tags"][tag] or tag in named]
         log("%stags: %s -> %s" % ("(dry run) " if args.dry_run else "", updater_tree.show_tags(current["tags"]), updater_tree.show_tags(tags)))
 
         changes = {}
@@ -92,12 +100,16 @@ def main():
         archives = [b for b in archives if b == tags["stable"] or b not in downloads.archived_builds(settings)]
         log("download archives to write: %s" % ", ".join(["mmc-%s-*" % tag for tag in moved]
                                                          + ["archive/%d/" % b for b in archives]))
+        report = {"serial": current["serial"], "before": current["tags"], "after": tags, "moved": moved,
+                  "archives": archives, "dry_run": args.dry_run}
         if args.dry_run:
             log("dry run: nothing written")
+            if args.json:
+                print(json.dumps(report))
             return
 
-        snapshot = common.snapshot_files(settings, "before-tag-%s-%d" % (args.tag, build), kind="deploy",
-                                         about="%s -> %d" % (args.tag, build))
+        snapshot = common.snapshot_files(settings, "before-tag-" + "-".join("%s-%d" % move for move in named.items()), kind="deploy",
+                                         about=", ".join("%s -> %d" % move for move in named.items()))
         log("snapshot of the tree as it was: %s" % snapshot.name)
         if changes:
             tree.commit(changes)
@@ -112,7 +124,25 @@ def main():
         for b in archives:
             for path in downloads.write_archive(settings, tree, b):
                 log("wrote %s" % path.relative_to(settings["FILES_ROOT"]))
-    log("%s is build %d in %s (not published)" % (args.tag, build, tree.root))
+    log("%s in %s (not published)" % (", ".join("%s is build %d" % (tag, tags[tag]) for tag in moved), tree.root))
+    if args.json:
+        print(json.dumps(report))
+
+
+def parse_moves(moves):
+    """["testing", "12", "stable", "11"] as {tag: build}, Stable first, the order they apply in."""
+    if len(moves) % 2:
+        common.die("say each tag and its build: testing <build> stable <build>")
+    named = {}
+    for tag, build in zip(moves[::2], moves[1::2]):
+        if tag not in ("testing", "stable"):
+            common.die("no tag %s: testing or stable" % tag)
+        if tag in named:
+            common.die("%s named twice" % tag)
+        if not build.isdigit():
+            common.die("not a build number: %s" % build)
+        named[tag] = int(build)
+    return {tag: named[tag] for tag in ("stable", "testing") if tag in named}
 
 
 if __name__ == "__main__":

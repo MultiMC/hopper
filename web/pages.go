@@ -28,12 +28,13 @@ var (
 
 type server struct {
 	overviews *overviewCache
+	builds    command
 	laminar   string
 	pages     map[string]*template.Template
 	static    fs.FS
 }
 
-func newServer(src source, laminar string) (*server, error) {
+func newServer(src source, builds command, laminar string) (*server, error) {
 	funcs := template.FuncMap{
 		"duration":  duration,
 		"shortTime": shortTime,
@@ -43,7 +44,7 @@ func newServer(src source, laminar string) (*server, error) {
 		},
 	}
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"overview", "oldlayout", "runs", "run", "error"} {
+	for _, name := range []string{"overview", "oldlayout", "builds", "runs", "run", "error"} {
 		page, err := template.New("layout.html").Funcs(funcs).ParseFS(files,
 			"templates/layout.html", "templates/runrow.html", "templates/"+name+".html")
 		if err != nil {
@@ -55,7 +56,7 @@ func newServer(src source, laminar string) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &server{&overviewCache{source: src, ttl: time.Second}, laminar, pages, static}, nil
+	return &server{&overviewCache{source: src, ttl: time.Second}, builds, laminar, pages, static}, nil
 }
 
 func (s *server) routes() http.Handler {
@@ -66,12 +67,18 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /run/{job}/{number}", s.withOverview("run", s.runData))
 	mux.HandleFunc("GET /run/{job}/{number}/log", s.handleLog)
 	mux.HandleFunc("GET /api/overview", s.handleOverviewAPI)
+	mux.HandleFunc("GET /builds/{setup}", s.handleBuilds)
+	mux.HandleFunc("GET /api/builds/{setup}", s.handleBuildsAPI)
+	mux.HandleFunc("POST /builds/{setup}/check", s.handleMove("check"))
+	mux.HandleFunc("POST /builds/{setup}/queue", s.handleMove("queue"))
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(s.static)))
+	// There's no login: nothing else stops another site from making a browser post here
+	guarded := http.NewCrossOriginProtection().Handler(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src data:; base-uri 'none'; frame-ancestors 'none'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
-		mux.ServeHTTP(w, r)
+		guarded.ServeHTTP(w, r)
 	})
 }
 
@@ -83,6 +90,8 @@ type pageData struct {
 	// the run page
 	Job, Number string
 	Run         *run
+	// the builds page
+	Builds *buildList
 }
 
 // dataFunc fills in a page's own data; a non-zero status means there's no such page.

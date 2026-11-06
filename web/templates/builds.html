@@ -1,0 +1,79 @@
+{{define "title"}}{{.Builds.Setup}} builds · hopper{{end}}
+
+{{define "main"}}
+{{with .Builds}}
+<div class="run-head">
+  <h1>{{.Setup}}: builds</h1>
+  {{if .HasTree}}<span class="dim">tags serial {{.Serial}}</span>{{end}}
+</div>
+{{if not .HasTree}}
+<p class="dim">This setup has no new updater tree yet, so it has no tags. These are its Launcher releases; the newest builds on the old layout's develop channel are marked.</p>
+{{else if .CanTag}}
+<p class="dim">Choose builds for Testing and Stable, then Apply to review. Tags only move forward. Latest follows every new build by itself. This page doesn't update itself; a change made meanwhile is caught when you apply.</p>
+{{else}}
+<p class="dim">Tags can't be moved from here: this setup has no Laminar job for it.</p>
+{{end}}
+
+<form id="tags" data-setup="{{.Setup}}" data-serial="{{.Serial}}"{{if .CanTag}} data-testing="{{index .Tags "testing"}}" data-stable="{{index .Tags "stable"}}"{{end}}>
+<div class="scroll">
+<table>
+  <thead><tr>
+    <th>Build</th><th>Tags</th><th>Commit</th><th>Built</th><th>Platforms</th>
+    {{if .CanTag}}<th class="choice">Testing</th><th class="choice">Stable</th>{{end}}
+  </tr></thead>
+  <tbody>
+  {{$list := .}}
+  {{range .Builds}}
+  <tr data-build="{{.Build}}">
+    <td class="mono build">{{.Build}}</td>
+    <td class="nowrap">{{range .Tags}}<span class="tag {{.}}">{{.}}</span> {{end}}</td>
+    <td class="commit"><a class="mono" href="{{.CommitURL}}">{{.Short}}</a> <span class="dim">{{.Subject}}</span></td>
+    <td class="mono nowrap">{{shortTime .Built}}</td>
+    <td>{{template "downloads" .Platforms}}</td>
+    {{if $list.CanTag}}
+    <td class="choice"><input type="radio" name="testing" value="{{.Build}}" aria-label="Testing: build {{.Build}}"{{if eq .Build (index $list.Tags "testing")}} checked{{end}}{{if lt .Build (index $list.Tags "testing")}} disabled{{end}}></td>
+    <td class="choice"><input type="radio" name="stable" value="{{.Build}}" aria-label="Stable: build {{.Build}}"{{if eq .Build (index $list.Tags "stable")}} checked{{end}}{{if lt .Build (index $list.Tags "stable")}} disabled{{end}}></td>
+    {{end}}
+  </tr>
+  {{else}}
+  <tr><td colspan="5" class="dim">No builds.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{with .Withdrawn}}<p class="dim">Withdrawn: <span class="mono">{{range $i, $b := .}}{{if $i}}, {{end}}{{$b}}{{end}}</span></p>{{end}}
+{{if .CanTag}}
+<div class="apply">
+  <span class="pending" id="pending">Nothing changed.</span>
+  <button type="button" id="reset" disabled>Reset</button>
+  <button type="submit" class="primary" id="apply" disabled>Apply…</button>
+</div>
+{{end}}
+</form>
+{{end}}
+{{end}}
+
+{{define "after"}}
+{{if .Builds.CanTag}}
+<dialog id="review" aria-labelledby="review-title">
+  <h2 id="review-title"></h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Tag</th><th>Now</th><th></th><th>Becomes</th></tr></thead>
+    <tbody id="review-changes"></tbody>
+  </table>
+  </div>
+  <ul id="review-notes"></ul>
+  <details>
+    <summary class="dim">What the check said</summary>
+    <pre id="review-log"></pre>
+  </details>
+  <p class="problem" id="review-problem" hidden></p>
+  <div class="dialog-buttons">
+    <button type="button" id="review-cancel" autofocus>Cancel</button>
+    <button type="button" class="primary" id="review-confirm">Confirm</button>
+  </div>
+</dialog>
+<script src="/static/builds.js" defer></script>
+{{end}}
+{{end}}

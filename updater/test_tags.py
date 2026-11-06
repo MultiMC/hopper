@@ -11,6 +11,7 @@ Like updater/test_deploy.py, they need HOPPER_TEST_DIR (default: $STATE) on btrf
 
 import gzip
 import hashlib
+import json
 import shutil
 import subprocess
 import sys
@@ -65,6 +66,37 @@ class TestTags(unittest.TestCase):
 
     def tags(self):
         return self.doc("tags.json")["tags"]
+
+    def test_both_tags_at_once(self):
+        self.deploy(10, 11, 12)
+        serial = self.doc("tags.json")["serial"]
+        self.ok("tag.py", "testing", 12, "stable", 11)
+        self.assertEqual(self.tags(), {"latest": 12, "testing": 12, "stable": 11})
+        self.assertEqual(self.doc("tags.json")["serial"], serial + 1, "one move, one new tags document")
+        self.assertTrue((self.downloads() / "archive" / "11").is_dir())
+
+    def test_both_tags_refused(self):
+        self.deploy(10, 11, 12)
+        self.refused("can't be older than Stable", "tag.py", "stable", 12, "testing", 11)
+        self.refused("named twice", "tag.py", "testing", 12, "testing", 12)
+        self.refused("no tag latest", "tag.py", "latest", 12)
+        self.refused("each tag and its build", "tag.py", "testing")
+
+    def test_serial_guards_what_was_decided(self):
+        self.deploy(10, 11)
+        serial = self.doc("tags.json")["serial"]
+        self.refused("the tags have changed", "tag.py", "--serial", serial - 1, "testing", 11)
+        self.ok("tag.py", "--serial", serial, "testing", 11)
+
+    def test_json_report(self):
+        self.deploy(10, 11, 12)
+        serial = self.doc("tags.json")["serial"]
+        report = json.loads(self.ok("tag.py", "--dry-run", "--json", "stable", 11).stdout)
+        self.assertEqual(self.doc("tags.json")["serial"], serial, "a dry run wrote")
+        self.assertEqual(report["before"]["testing"], 10)
+        self.assertEqual(report["after"], {"latest": 12, "testing": 11, "stable": 11})
+        self.assertEqual(report["moved"], ["testing", "stable"])
+        self.assertTrue(report["dry_run"])
 
     def downloads(self):
         return self.files / "downloads" / "updater"

@@ -6,6 +6,7 @@
     --dim: #676d73;
     --line: #dcdedb;
     --link: #0b5cad;
+    --link-strong: #0b5cad;
     --success: #18753c;
     --failed: #bb2020;
     --running: #8a5a00;
@@ -21,6 +22,7 @@
         --dim: #9aa0a6;
         --line: #33373b;
         --link: #6cb1f5;
+        --link-strong: #1f6fbf;
         --success: #5fcf8a;
         --failed: #ff7b72;
         --running: #e3b341;
@@ -247,4 +249,115 @@ tbody tr:last-child td {
 
 .log-error {
     color: var(--failed);
+}
+
+.tag {
+    display: inline-block;
+    padding: 0 6px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.tag.stable {
+    color: var(--success);
+}
+
+.tag.testing {
+    color: var(--running);
+}
+
+.choice {
+    text-align: center;
+}
+
+tr.chosen td {
+    background: color-mix(in srgb, var(--running) 14%, transparent);
+}
+
+tr.withdrawn td {
+    color: var(--dim);
+}
+
+.commit {
+    min-width: 280px;
+}
+
+.apply {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    align-items: center;
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+}
+
+.apply .pending {
+    flex: 1;
+    min-width: 200px;
+}
+
+button {
+    padding: 6px 14px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font: inherit;
+    cursor: pointer;
+}
+
+button:disabled {
+    color: var(--dim);
+    cursor: default;
+}
+
+button.primary:not(:disabled) {
+    color: #fff;
+    background: var(--link-strong);
+    border-color: var(--link-strong);
+}
+
+dialog {
+    width: min(720px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    padding: 16px;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+
+dialog::backdrop {
+    background: rgb(0 0 0 / 55%);
+}
+
+dialog h2 {
+    font-size: 17px;
+}
+
+dialog ul {
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+dialog pre {
+    max-height: 200px;
+    overflow: auto;
+    font: 12px/1.4 var(--mono);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 14px;
 }

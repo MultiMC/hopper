@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +32,7 @@ func testServer(t *testing.T, laminarURL string) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := newServer(func(context.Context) (*overview, error) { return o, nil }, laminarURL)
+	s, err := newServer(func(context.Context) (*overview, error) { return o, nil }, fakeBuilds(nil), laminarURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,10 +167,10 @@ func TestBadRunNames(t *testing.T) {
 	}
 }
 
-// Only reading: nothing but GET gets anywhere.
+// Only the tag moves take anything but GET.
 func TestOnlyGet(t *testing.T) {
 	url := testServer(t, "http://unused").URL
-	for _, path := range []string{"/", "/old-layout", "/runs", "/run/meta/1", "/run/meta/1/log", "/api/overview"} {
+	for _, path := range []string{"/", "/old-layout", "/runs", "/run/meta/1", "/run/meta/1/log", "/api/overview", "/builds/files2", "/api/builds/files2"} {
 		response, err := http.Post(url+path, "text/plain", nil)
 		if err != nil {
 			t.Fatal(err)
@@ -257,7 +259,7 @@ func TestOverviewFailure(t *testing.T) {
 			return nil, failure
 		}
 		return o, nil
-	}, "http://unused")
+	}, fakeBuilds(nil), "http://unused")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,5 +339,182 @@ func TestFormats(t *testing.T) {
 	}
 	if got := size(6733687156736); got != "6.1T" {
 		t.Errorf("size: %q", got)
+	}
+}
+
+const buildsFixture = `{
+  "setup": "files2", "has_tree": true, "can_tag": true, "serial": 21,
+  "tags": {"latest": 5043, "testing": 5035, "stable": 5034},
+  "withdrawn": [5026],
+  "builds": [
+    {"build": 5043, "commit": "5ec639ce79a0c544281a", "commit_url": "https://git.example/commit/5ec6", "subject": "GH-4659 <play time>", "built": "2026-11-06T17:46:46+01:00",
+     "platforms": [{"platform": "lin64", "url": "https://files2.example/latest-lin64.tar.gz"}], "tags": ["latest"]},
+    {"build": 5035, "commit": "aaaaaaaaaaaaaaaaaaaa", "commit_url": "https://git.example/commit/aaaa", "subject": null, "built": "2026-11-05T10:00:00+01:00",
+     "platforms": [{"platform": "lin64", "url": null}], "tags": ["testing"]},
+    {"build": 5034, "commit": "bbbbbbbbbbbbbbbbbbbb", "commit_url": "https://git.example/commit/bbbb", "subject": null, "built": "2026-11-05T09:00:00+01:00",
+     "platforms": [], "tags": ["stable"]},
+    {"build": 5030, "commit": "cccccccccccccccccccc", "commit_url": "https://git.example/commit/cccc", "subject": null, "built": "2026-11-04T09:00:00+01:00",
+     "platforms": [], "tags": []}
+  ]
+}`
+
+// fakeBuilds answers like daemon/builds.py and records the calls; refusal is what it refuses with.
+func fakeBuilds(calls *[][]string) command {
+	return func(_ context.Context, args ...string) ([]byte, error) {
+		if calls != nil {
+			*calls = append(*calls, args)
+		}
+		switch args[0] {
+		case "list":
+			if args[1] == "broken" {
+				return nil, errors.New("bad <tree>")
+			}
+			if args[1] == "production" {
+				return []byte(`{"setup": "production", "has_tree": false, "can_tag": false, "serial": null, "tags": null, "withdrawn": [],
+				  "builds": [{"build": 4307, "commit": "dddddddddddd", "commit_url": "https://git.example/d", "subject": "x", "built": "2026-11-06T17:51:25+01:00", "platforms": [], "tags": ["develop"]}]}`), nil
+			}
+			return []byte(buildsFixture), nil
+		case "check":
+			return []byte(`{"moved": ["testing"]}`), nil
+		case "queue":
+			if slices.Contains(args, "99") {
+				return nil, errors.New("the tags have changed")
+			}
+			return []byte(`{"run": "tag-files2:3"}`), nil
+		}
+		return nil, errors.New("no such command")
+	}
+}
+
+func moveServer(t *testing.T) (*httptest.Server, *[][]string) {
+	t.Helper()
+	o, err := parseOverview(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := &[][]string{}
+	s, err := newServer(func(context.Context) (*overview, error) { return o, nil }, fakeBuilds(calls), "http://unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(s.routes())
+	t.Cleanup(server.Close)
+	return server, calls
+}
+
+func TestBuildsPage(t *testing.T) {
+	server, _ := moveServer(t)
+	status, body := get(t, server.URL+"/builds/files2")
+	if status != http.StatusOK {
+		t.Fatalf("status %d: %s", status, body)
+	}
+	wantAll(t, body,
+		"5ec639ce79", `href="https://git.example/commit/5ec6"`, "GH-4659 &lt;play time&gt;",
+		`class="tag latest"`, `href="https://files2.example/latest-lin64.tar.gz"`,
+		`data-setup="files2"`, `data-serial="21"`, `data-testing="5035"`, `data-stable="5034"`,
+		`value="5035" aria-label="Testing: build 5035" checked`,
+		`value="5034" aria-label="Stable: build 5034" checked`,
+		`value="5030" aria-label="Stable: build 5030" disabled`, // older: tags only move forward
+		`value="5034" aria-label="Testing: build 5034" disabled`,
+		"Withdrawn", "5026", `id="review"`, `id="review-confirm"`, `id="apply" disabled`,
+	)
+	if strings.Contains(body, "data-refresh") {
+		t.Error("the page refreshes itself, which would drop a selection")
+	}
+
+	_, production := get(t, server.URL+"/builds/production")
+	wantAll(t, production, "4307", "no new updater tree", `class="tag develop"`)
+	for _, absent := range []string{`type="radio"`, `id="review"`, "builds.js"} {
+		if strings.Contains(production, absent) {
+			t.Errorf("a setup without a tree has %q", absent)
+		}
+	}
+	if status, _ := get(t, server.URL+"/builds/nosuch"); status != http.StatusNotFound {
+		t.Errorf("no such setup: status %d", status)
+	}
+	status, broken := get(t, server.URL+"/builds/broken")
+	if status != http.StatusBadGateway || !strings.Contains(broken, "bad &lt;tree&gt;") {
+		t.Errorf("broken: status %d: %s", status, broken)
+	}
+	if status, api := get(t, server.URL+"/api/builds/files2"); status != http.StatusOK || api != buildsFixture {
+		t.Errorf("the API: status %d", status)
+	}
+}
+
+func postForm(t *testing.T, url string, values url.Values) (int, string) {
+	t.Helper()
+	response, err := http.PostForm(url, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response.StatusCode, string(body)
+}
+
+func TestMoves(t *testing.T) {
+	server, calls := moveServer(t)
+	status, body := postForm(t, server.URL+"/builds/files2/check", url.Values{"serial": {"21"}, "testing": {"5043"}})
+	if status != http.StatusOK || !strings.Contains(body, "moved") {
+		t.Fatalf("check: status %d: %s", status, body)
+	}
+	status, body = postForm(t, server.URL+"/builds/files2/queue", url.Values{"serial": {"21"}, "testing": {"5043"}, "stable": {"5035"}})
+	if status != http.StatusOK || !strings.Contains(body, "tag-files2:3") {
+		t.Fatalf("queue: status %d: %s", status, body)
+	}
+	got := strings.Join((*calls)[0], " ") + "|" + strings.Join((*calls)[1], " ")
+	want := "check files2 --serial 21 testing 5043|queue files2 --serial 21 testing 5043 stable 5035"
+	if got != want {
+		t.Errorf("calls: %s", got)
+	}
+
+	status, body = postForm(t, server.URL+"/builds/files2/queue", url.Values{"serial": {"21"}, "testing": {"99"}})
+	if status != http.StatusConflict || !strings.Contains(body, "the tags have changed") {
+		t.Errorf("a refusal: status %d: %s", status, body)
+	}
+
+	*calls = nil
+	for _, c := range []struct {
+		path   string
+		values url.Values
+		status int
+	}{
+		{"files2/queue", url.Values{"testing": {"5043"}}, http.StatusBadRequest},
+		{"files2/queue", url.Values{"serial": {"21"}}, http.StatusBadRequest},
+		{"files2/queue", url.Values{"serial": {"21; rm"}, "testing": {"5043"}}, http.StatusBadRequest},
+		{"files2/queue", url.Values{"serial": {"21"}, "testing": {"--dry-run"}}, http.StatusBadRequest},
+		{"nosuch/queue", url.Values{"serial": {"21"}, "testing": {"5043"}}, http.StatusNotFound},
+	} {
+		if status, body := postForm(t, server.URL+"/builds/"+c.path, c.values); status != c.status {
+			t.Errorf("%s %v: status %d: %s", c.path, c.values, status, body)
+		}
+	}
+	if len(*calls) != 0 {
+		t.Errorf("a bad request reached the script: %v", *calls)
+	}
+}
+
+// There's no login: another site can't make a browser move the tags.
+func TestCrossOriginRefused(t *testing.T) {
+	server, calls := moveServer(t)
+	request, err := http.NewRequest("POST", server.URL+"/builds/files2/queue", strings.NewReader("serial=21&testing=5043"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Sec-Fetch-Site", "cross-site")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusForbidden {
+		t.Errorf("status %d", response.StatusCode)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("it reached the script: %v", *calls)
 	}
 }

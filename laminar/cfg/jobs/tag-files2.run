@@ -1,0 +1,21 @@
+#!/bin/bash -eu
+# Moves the new updater's tags and publishes them: updater/tag.py, then files/publish.py.
+# daemon/builds.py queues it, the web view's Confirm among others; $SERIAL makes it refuse if
+# the tags have changed since they were checked. The job's name says the setup:
+# tag-<setup>.
+#
+#     laminarc queue tag-files2 SERIAL=<serial> [TESTING=<build>] [STABLE=<build>]
+
+config=config/${JOB##*-}.env
+# Waits for the files tree's lock instead of stopping (nothing retries a Laminar job)
+export HOPPER_LOCK_WAIT=3600
+
+# This file is in the hopper checkout's laminar/cfg/jobs (~/laminar/cfg is a link to it)
+cd "$(dirname "$(realpath "$0")")/../../.."
+[[ -f $config ]] || { echo "no settings file $config for job $JOB" >&2; exit 1; }
+
+moves=()
+if [[ -n ${TESTING:-} ]]; then moves+=(testing "$TESTING"); fi
+if [[ -n ${STABLE:-} ]]; then moves+=(stable "$STABLE"); fi
+updater/tag.py --config "$config" --serial "$SERIAL" "${moves[@]}"
+files/publish.py --config "$config"

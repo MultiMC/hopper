@@ -16,8 +16,8 @@ directory down and is run from the top of the checkout, e.g.
 
 | Directory | What |
 |-----------|------|
-| `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing, as JSON, for `web/` |
-| `web/` | The view of all this in the browser, with Laminar's logs, and `/api/overview`: `hopper-web`, in Go with only its standard library, read-only so far |
+| `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing, as JSON, for `web/`; `builds.py` lists a setup's builds and checks and queues moves of its tags |
+| `web/` | The view of all this in the browser, with Laminar's logs, the moves of the tags, and `/api/overview`: `hopper-web`, in Go with only its standard library |
 | `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh` for both Windows platforms, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
@@ -671,7 +671,7 @@ are refused with the tree unchanged.
 
 ## Tag operations (`updater/tag.py`, `updater/remove.py`, `updater/prune.py`)
 
-    updater/tag.py [--config FILE] [--dry-run] testing|stable <build>
+    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] testing|stable <build> [testing|stable <build>]
     updater/remove.py [--config FILE] [--dry-run] <build>
     updater/prune.py [--config FILE] [--dry-run] [--if-configured]
 
@@ -687,6 +687,9 @@ of them publishes: `files/publish.py` does, removals included.
   replaced by a newer one, or removed.
 - **`tag.py stable <build>`**: any build newer than the current Stable becomes Stable; when
   Testing is then older, it moves along (Testing resolves to Stable).
+- **`tag.py testing <build> stable <build>`**: both as one move, one new tags document; Testing
+  can't be older than the new Stable. `--serial` refuses unless the tags document's serial is
+  that one, and `--json` prints what was done, or would be, on stdout.
 - **`remove.py <build>`**: takes a build out for good. It goes into the tags document's
   `withdrawn`, a tag that names it moves back (Latest to the highest build left, Testing to
   the newest left between Stable and it), and its manifest and the content files no other
@@ -952,26 +955,50 @@ working on the same files tree and plain state files.
 
 `hopper-web` shows the overview in the browser: each setup's tags and their downloads (a
 setup without a new updater tree, its newest develop build) and Laminar's jobs (`/`), the
-current layout's update channels (`/old-layout`), the newest runs (`/runs`), and a run's log
-(`/run/<job>/<number>`), which grows while the run goes. `/api/overview` is the overview's
-JSON, for anything else that wants it. It holds no logic of its own. The data is
-`daemon/overview.py`, run at most once a second however many pages are open, and a log is
+current layout's update channels (`/old-layout`), a setup's builds (`/builds/<setup>`), the
+newest runs (`/runs`), and a run's log (`/run/<job>/<number>`), which grows while the run
+goes. `/api/overview` and `/api/builds/<setup>` are the same JSON, for anything else that
+wants it. It holds no logic of its own. The data is `daemon/overview.py`, run at most once a second however many pages are open, and a log is
 passed through from Laminar's web server (`LAMINAR_HTTP`, default `http://127.0.0.1:8091`)
 as it comes. If the overview can't be had, the page says why, and it doesn't show an older
 one instead (the API answers 502 and `{"error": why}`); a page that can't reach the service
 says "not updating".
 
-It only reads: every route is a GET. It listens on `127.0.0.1:8092`, with Caddy in front as
-https://hopper.peterix.cz, and has no login, like Laminar's own site: whoever can reach it can
-look. Settings are in `web/main.go`. To try it from another machine, on the build server's
+Everything is a GET except moving a setup's tags (below). It listens on `127.0.0.1:8092`, with
+Caddy in front as https://hopper.peterix.cz, and has no login, like Laminar's own site:
+whoever can reach it can look, and move files2's tags; so runs don't say who asked for them.
+Requests from other sites are refused (`http.CrossOriginProtection`). Settings are in `web/main.go`. To try it from another machine, on the build server's
 data:
 
     ssh -N -L 18091:127.0.0.1:8091 hopper@<build server> &
     LISTEN=127.0.0.1:18092 LAMINAR_HTTP=http://127.0.0.1:18091 \
-        OVERVIEW="ssh hopper@<build server> hopper/daemon/overview.py" web/bin/hopper-web
+        OVERVIEW="ssh hopper@<build server> hopper/daemon/overview.py" \
+        BUILDS="ssh hopper@<build server> hopper/daemon/builds.py" web/bin/hopper-web
 
 `/runs` lists what the overview lists, the newest 100 runs of all jobs; the hourly `meta`
 pushes older runs off it within days. Their logs stay at their URLs.
+
+### A setup's builds and moving its tags (`daemon/builds.py`, Laminar's `tag-<setup>`)
+
+    daemon/builds.py list <setup>
+    daemon/builds.py check <setup> --serial N [testing <build>] [stable <build>]
+    daemon/builds.py queue <setup> --serial N [testing <build>] [stable <build>]
+
+`list` gives the builds, newest first: number, commit and subject, when built, platforms and
+their downloads, and the tags naming them; for a setup without a new updater tree, its
+Launcher releases in `RELEASES_DIR`, and no tags. `check` is `updater/tag.py --dry-run`'s report,
+and changes nothing. `queue` checks again and queues the Laminar job `tag-<setup>`, which runs
+`updater/tag.py` and `files/publish.py`. A setup can only have its tags moved if it has a tree
+and that job: `tag-files2` for now. `--serial` is the tags document's serial as `list` gave
+it: if the tags have changed since (a new build moves Latest, so that counts), `tag.py` refuses,
+at each of these steps and in the job.
+
+`/builds/<setup>` does this in steps, so a move isn't made by accident: choose builds for
+Testing and Stable (older than the current ones can't be chosen, and Stable beyond Testing
+takes Testing along), **Apply** runs `check` and shows in a popup what would change, with the
+commits, and what the check said, and **Confirm** (Cancel has the focus) runs `queue` and goes
+to the job's run. The page doesn't refresh itself, as that would drop the choices. Nothing is
+tried again after a refusal: reload the page, and see the current tags.
 
 
 ## Laminar (`host/builder/laminar.service`)
@@ -987,6 +1014,8 @@ itself; only replacing the `~/laminar/cfg` link needs a restart of `laminar.serv
 watches the directory it found when it started. Its jobs so far:
 
 - `meta`: the meta pipeline (below).
+- `tag-files2`: moves files2's tags and publishes them (see "A setup's builds and moving its
+  tags").
 - `launcher-production`, `launcher-files2`, `translations-production`, `translations-files2`,
   `website-production`, `patrons-production`: hopper's releases (below).
   `launcher-production` has no `TRIGGER` since 2026-11-03 (commented out in its `.conf`):
