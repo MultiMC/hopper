@@ -155,6 +155,7 @@ dd {
 
 .scroll {
     overflow-x: auto;
+    overflow-y: hidden; /* it's as tall as its table; a rounded-up fraction isn't worth a scrollbar */
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: 6px;
