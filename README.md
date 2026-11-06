@@ -16,8 +16,8 @@ directory down and is run from the top of the checkout, e.g.
 
 | Directory | What |
 |-----------|------|
-| `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing, as JSON, for `web/`; `builds.py` lists a setup's builds and checks and queues moves of its tags |
-| `web/` | The view of all this in the browser, with Laminar's logs, the moves of the tags, and `/api/overview`: `hopper-web`, in Go with only its standard library |
+| `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing, as JSON, for `web/`; `builds.py` lists a setup's builds, and checks and queues moving tags, withdrawing and pruning |
+| `web/` | The view of all this in the browser, with Laminar's logs, the actions on builds, and `/api/overview`: `hopper-web`, in Go with only its standard library |
 | `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh` for both Windows platforms, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
@@ -672,8 +672,8 @@ are refused with the tree unchanged.
 ## Tag operations (`updater/tag.py`, `updater/remove.py`, `updater/prune.py`)
 
     updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] testing|stable <build> [testing|stable <build>]
-    updater/remove.py [--config FILE] [--dry-run] <build>
-    updater/prune.py [--config FILE] [--dry-run] [--if-configured]
+    updater/remove.py [--config FILE] [--dry-run] [--serial N] [--json] <build>
+    updater/prune.py [--config FILE] [--dry-run] [--if-configured] [--cap-mb N] [--serial N] [--json]
 
 Component 5 of `Updater.md` in the Design repo: moving the Testing and Stable tags, removing
 a build, and keeping the tree under its size cap. Each works like `updater/deploy.py`, on
@@ -688,8 +688,7 @@ of them publishes: `files/publish.py` does, removals included.
 - **`tag.py stable <build>`**: any build newer than the current Stable becomes Stable; when
   Testing is then older, it moves along (Testing resolves to Stable).
 - **`tag.py testing <build> stable <build>`**: both as one move, one new tags document; Testing
-  can't be older than the new Stable. `--serial` refuses unless the tags document's serial is
-  that one, and `--json` prints what was done, or would be, on stdout.
+  can't be older than the new Stable.
 - **`remove.py <build>`**: takes a build out for good. It goes into the tags document's
   `withdrawn`, a tag that names it moves back (Latest to the highest build left, Testing to
   the newest left between Stable and it), and its manifest and the content files no other
@@ -699,7 +698,10 @@ of them publishes: `files/publish.py` does, removals included.
   never purged; while the content files only the other builds list are over
   `UPDATER_MAX_SIZE_MB` (4096), the oldest of those goes. A purged build isn't withdrawn and
   no tag moves; a Launcher on it still updates (it can't tell which files the next build
-  dropped). Laminar's release job runs it after `updater/deploy.py`.
+  dropped). Laminar's release job runs it after `updater/deploy.py`. `--cap-mb` is another cap,
+  this once.
+- All three: `--serial` refuses unless the tags document's serial is that one, and `--json`
+  prints what was done, or would be, on stdout.
 - A build, the tag's build, or a withdrawn build named where it doesn't fit is refused with
   the tree unchanged. Naming the build a tag already has changes no tags and writes that
   tag's download archives again.
@@ -964,9 +966,9 @@ as it comes. If the overview can't be had, the page says why, and it doesn't sho
 one instead (the API answers 502 and `{"error": why}`); a page that can't reach the service
 says "not updating".
 
-Everything is a GET except moving a setup's tags (below). It listens on `127.0.0.1:8092`, with
+Everything is a GET except the actions on a setup's builds (below). It listens on `127.0.0.1:8092`, with
 Caddy in front as https://hopper.peterix.cz, and has no login, like Laminar's own site:
-whoever can reach it can look, and move files2's tags; so runs don't say who asked for them.
+whoever can reach it can look, and act on files2's builds; so runs don't say who asked for them.
 Requests from other sites are refused (`http.CrossOriginProtection`). Settings are in `web/main.go`. To try it from another machine, on the build server's
 data:
 
@@ -978,27 +980,37 @@ data:
 `/runs` lists what the overview lists, the newest 100 runs of all jobs; the hourly `meta`
 pushes older runs off it within days. Their logs stay at their URLs.
 
-### A setup's builds and moving its tags (`daemon/builds.py`, Laminar's `tag-<setup>`)
+### A setup's builds and the actions on them (`daemon/builds.py`, Laminar's `<action>-<setup>`)
 
     daemon/builds.py list <setup>
-    daemon/builds.py check <setup> --serial N [testing <build>] [stable <build>]
-    daemon/builds.py queue <setup> --serial N [testing <build>] [stable <build>]
+    daemon/builds.py check <setup> --serial N tag [testing <build>] [stable <build>]
+    daemon/builds.py check <setup> --serial N remove <build>
+    daemon/builds.py check <setup> --serial N prune [<MB>]
+    daemon/builds.py queue <setup> --serial N ...
 
 `list` gives the builds, newest first: number, commit and subject, when built, platforms and
-their downloads, and the tags naming them; for a setup without a new updater tree, its
-Launcher releases in `RELEASES_DIR`, and no tags. `check` is `updater/tag.py --dry-run`'s report,
-and changes nothing. `queue` checks again and queues the Laminar job `tag-<setup>`, which runs
-`updater/tag.py` and `files/publish.py`. A setup can only have its tags moved if it has a tree
-and that job: `tag-files2` for now. `--serial` is the tags document's serial as `list` gave
-it: if the tags have changed since (a new build moves Latest, so that counts), `tag.py` refuses,
-at each of these steps and in the job.
+their downloads, the tags naming them, and whether they keep an archive; for a setup without a
+new updater tree, its Launcher releases in `RELEASES_DIR`, and no tags. `check` is the script's
+(`updater/tag.py`, `remove.py`, `prune.py`) `--dry-run --json` report, and changes nothing.
+`queue` checks again and queues the Laminar job `tag-<setup>`, `remove-<setup>` or
+`prune-<setup>`, which runs the script and `files/publish.py`. A setup can only be acted on if it
+has a tree and these jobs: `files2` for now. `--serial` is the tags document's serial as `list`
+gave it: if the tags have changed since (a new build moves Latest, so that counts), the script
+refuses, at each of these steps and in the job.
 
-`/builds/<setup>` does this in steps, so a move isn't made by accident: choose builds for
-Testing and Stable (older than the current ones can't be chosen, and Stable beyond Testing
-takes Testing along), **Apply** runs `check` and shows in a popup what would change, with the
-commits, and what the check said, and **Confirm** (Cancel has the focus) runs `queue` and goes
-to the job's run. The page doesn't refresh itself, as that would drop the choices. Nothing is
-tried again after a refusal: reload the page, and see the current tags.
+`/builds/<setup>` does these in steps, so nothing happens by accident: each shows in a popup,
+from `check`, what it would do, with the commits, and only **Confirm** (Cancel has the focus)
+runs `queue` and goes to the job's run.
+
+- **Moving tags**: choose builds for Testing and Stable (older than the current ones can't be
+  chosen, and Stable beyond Testing takes Testing along), then **Apply**.
+- **Withdrawing**: **Withdraw…** on a build (not the Stable one), and Confirm only opens after
+  typing the build's number: it can't be undone and the number is never used again.
+- **Pruning**: **Prune now…**, to the cap (`UPDATER_MAX_SIZE_MB`) or to another one, this once. If
+  nothing is over it, the popup says so and has no Confirm.
+
+The page doesn't refresh itself, as that would drop the choices. Nothing is tried again after a
+refusal: reload the page, and see the current state.
 
 
 ## Laminar (`host/builder/laminar.service`)
@@ -1014,8 +1026,8 @@ itself; only replacing the `~/laminar/cfg` link needs a restart of `laminar.serv
 watches the directory it found when it started. Its jobs so far:
 
 - `meta`: the meta pipeline (below).
-- `tag-files2`: moves files2's tags and publishes them (see "A setup's builds and moving its
-  tags").
+- `tag-files2`, `remove-files2`, `prune-files2`: move files2's tags, withdraw a build, purge
+  what's over the cap, and publish that (see "A setup's builds and the actions on them").
 - `launcher-production`, `launcher-files2`, `translations-production`, `translations-files2`,
   `website-production`, `patrons-production`: hopper's releases (below).
   `launcher-production` has no `TRIGGER` since 2026-11-03 (commented out in its `.conf`):

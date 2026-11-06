@@ -7,6 +7,7 @@
     --line: #dcdedb;
     --link: #0b5cad;
     --link-strong: #0b5cad;
+    --danger-strong: #bb2020;
     --success: #18753c;
     --failed: #bb2020;
     --running: #8a5a00;
@@ -23,6 +24,7 @@
         --line: #33373b;
         --link: #6cb1f5;
         --link-strong: #1f6fbf;
+        --danger-strong: #b62324;
         --success: #5fcf8a;
         --failed: #ff7b72;
         --running: #e3b341;
@@ -32,6 +34,11 @@
 
 * {
     box-sizing: border-box;
+}
+
+/* Whatever else sets its display */
+[hidden] {
+    display: none !important;
 }
 
 body {
@@ -282,7 +289,11 @@ tr.withdrawn td {
 }
 
 .commit {
-    min-width: 280px;
+    min-width: 190px;
+}
+
+.tags {
+    min-width: 64px;
 }
 
 .apply {
@@ -354,6 +365,42 @@ dialog pre {
     font: 12px/1.4 var(--mono);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+button.small {
+    padding: 2px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+button.danger:not(:disabled) {
+    color: #fff;
+    background: var(--danger-strong);
+    border-color: var(--danger-strong);
+}
+
+input[type="number"], input[type="text"] {
+    padding: 4px 8px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font: 13px var(--mono);
+}
+
+.prune, .typed {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+}
+
+.prune input {
+    width: 100px;
+}
+
+.typed input {
+    width: 100px;
 }
 
 .dialog-buttons {

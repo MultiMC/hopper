@@ -64,8 +64,7 @@ def main():
         current = tree.tags()
         if current is None:
             common.die("%s has no tags document yet; updater/deploy.py starts a tree" % tree.root)
-        if args.serial is not None and current["serial"] != args.serial:
-            common.die("the tags have changed: their serial is %d, not %d" % (current["serial"], args.serial))
+        tree.check_serial(current, args.serial)
         tags = dict(current["tags"])
         old_stable = tags["stable"]
         for tag, build in named.items():

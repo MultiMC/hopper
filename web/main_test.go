@@ -343,7 +343,7 @@ func TestFormats(t *testing.T) {
 }
 
 const buildsFixture = `{
-  "setup": "files2", "has_tree": true, "can_tag": true, "serial": 21,
+  "setup": "files2", "has_tree": true, "can_act": true, "serial": 21, "cap_mb": 4096,
   "tags": {"latest": 5043, "testing": 5035, "stable": 5034},
   "withdrawn": [5026],
   "builds": [
@@ -352,7 +352,7 @@ const buildsFixture = `{
     {"build": 5035, "commit": "aaaaaaaaaaaaaaaaaaaa", "commit_url": "https://git.example/commit/aaaa", "subject": null, "built": "2026-11-05T10:00:00+01:00",
      "platforms": [{"platform": "lin64", "url": null}], "tags": ["testing"]},
     {"build": 5034, "commit": "bbbbbbbbbbbbbbbbbbbb", "commit_url": "https://git.example/commit/bbbb", "subject": null, "built": "2026-11-05T09:00:00+01:00",
-     "platforms": [], "tags": ["stable"]},
+     "platforms": [], "tags": ["stable"], "archived": true},
     {"build": 5030, "commit": "cccccccccccccccccccc", "commit_url": "https://git.example/commit/cccc", "subject": null, "built": "2026-11-04T09:00:00+01:00",
      "platforms": [], "tags": []}
   ]
@@ -370,7 +370,7 @@ func fakeBuilds(calls *[][]string) command {
 				return nil, errors.New("bad <tree>")
 			}
 			if args[1] == "production" {
-				return []byte(`{"setup": "production", "has_tree": false, "can_tag": false, "serial": null, "tags": null, "withdrawn": [],
+				return []byte(`{"setup": "production", "has_tree": false, "can_act": false, "serial": null, "tags": null, "withdrawn": [],
 				  "builds": [{"build": 4307, "commit": "dddddddddddd", "commit_url": "https://git.example/d", "subject": "x", "built": "2026-11-06T17:51:25+01:00", "platforms": [], "tags": ["develop"]}]}`), nil
 			}
 			return []byte(buildsFixture), nil
@@ -417,14 +417,18 @@ func TestBuildsPage(t *testing.T) {
 		`value="5030" aria-label="Stable: build 5030" disabled`, // older: tags only move forward
 		`value="5034" aria-label="Testing: build 5034" disabled`,
 		"Withdrawn", "5026", `id="review"`, `id="review-confirm"`, `id="apply" disabled`,
+		`data-withdraw="5043"`, `data-withdraw="5030"`, ">archived<", `id="prune-cap" type="number" min="0" step="1" value="4096"`,
 	)
+	if strings.Contains(body, `data-withdraw="5034"`) {
+		t.Error("the Stable build can be withdrawn")
+	}
 	if strings.Contains(body, "data-refresh") {
 		t.Error("the page refreshes itself, which would drop a selection")
 	}
 
 	_, production := get(t, server.URL+"/builds/production")
 	wantAll(t, production, "4307", "no new updater tree", `class="tag develop"`)
-	for _, absent := range []string{`type="radio"`, `id="review"`, "builds.js"} {
+	for _, absent := range []string{`type="radio"`, `id="review"`, "builds.js", "data-withdraw", `id="prune"`} {
 		if strings.Contains(production, absent) {
 			t.Errorf("a setup without a tree has %q", absent)
 		}
@@ -455,23 +459,30 @@ func postForm(t *testing.T, url string, values url.Values) (int, string) {
 	return response.StatusCode, string(body)
 }
 
-func TestMoves(t *testing.T) {
+func TestActions(t *testing.T) {
 	server, calls := moveServer(t)
-	status, body := postForm(t, server.URL+"/builds/files2/check", url.Values{"serial": {"21"}, "testing": {"5043"}})
-	if status != http.StatusOK || !strings.Contains(body, "moved") {
-		t.Fatalf("check: status %d: %s", status, body)
-	}
-	status, body = postForm(t, server.URL+"/builds/files2/queue", url.Values{"serial": {"21"}, "testing": {"5043"}, "stable": {"5035"}})
-	if status != http.StatusOK || !strings.Contains(body, "tag-files2:3") {
-		t.Fatalf("queue: status %d: %s", status, body)
-	}
-	got := strings.Join((*calls)[0], " ") + "|" + strings.Join((*calls)[1], " ")
-	want := "check files2 --serial 21 testing 5043|queue files2 --serial 21 testing 5043 stable 5035"
-	if got != want {
-		t.Errorf("calls: %s", got)
+	for _, c := range []struct {
+		step   string
+		values url.Values
+		want   string
+	}{
+		{"check", url.Values{"serial": {"21"}, "action": {"tag"}, "testing": {"5043"}}, "check files2 --serial 21 tag testing 5043"},
+		{"queue", url.Values{"serial": {"21"}, "action": {"tag"}, "testing": {"5043"}, "stable": {"5035"}}, "queue files2 --serial 21 tag testing 5043 stable 5035"},
+		{"check", url.Values{"serial": {"21"}, "action": {"remove"}, "build": {"5030"}}, "check files2 --serial 21 remove 5030"},
+		{"queue", url.Values{"serial": {"21"}, "action": {"remove"}, "build": {"5030"}}, "queue files2 --serial 21 remove 5030"},
+		{"check", url.Values{"serial": {"21"}, "action": {"prune"}}, "check files2 --serial 21 prune"},
+		{"queue", url.Values{"serial": {"21"}, "action": {"prune"}, "cap_mb": {"0"}}, "queue files2 --serial 21 prune 0"},
+	} {
+		*calls = nil
+		if status, body := postForm(t, server.URL+"/builds/files2/"+c.step, c.values); status != http.StatusOK {
+			t.Errorf("%s: status %d: %s", c.want, status, body)
+		}
+		if len(*calls) != 1 || strings.Join((*calls)[0], " ") != c.want {
+			t.Errorf("calls %v, want %s", *calls, c.want)
+		}
 	}
 
-	status, body = postForm(t, server.URL+"/builds/files2/queue", url.Values{"serial": {"21"}, "testing": {"99"}})
+	status, body := postForm(t, server.URL+"/builds/files2/queue", url.Values{"serial": {"21"}, "action": {"tag"}, "testing": {"99"}})
 	if status != http.StatusConflict || !strings.Contains(body, "the tags have changed") {
 		t.Errorf("a refusal: status %d: %s", status, body)
 	}
@@ -482,11 +493,16 @@ func TestMoves(t *testing.T) {
 		values url.Values
 		status int
 	}{
-		{"files2/queue", url.Values{"testing": {"5043"}}, http.StatusBadRequest},
+		{"files2/queue", url.Values{"action": {"tag"}, "testing": {"5043"}}, http.StatusBadRequest},
 		{"files2/queue", url.Values{"serial": {"21"}}, http.StatusBadRequest},
-		{"files2/queue", url.Values{"serial": {"21; rm"}, "testing": {"5043"}}, http.StatusBadRequest},
-		{"files2/queue", url.Values{"serial": {"21"}, "testing": {"--dry-run"}}, http.StatusBadRequest},
-		{"nosuch/queue", url.Values{"serial": {"21"}, "testing": {"5043"}}, http.StatusNotFound},
+		{"files2/queue", url.Values{"serial": {"21"}, "action": {"tag"}}, http.StatusBadRequest},
+		{"files2/queue", url.Values{"serial": {"21"}, "action": {"nosuch"}}, http.StatusBadRequest},
+		{"files2/queue", url.Values{"serial": {"21; rm"}, "action": {"tag"}, "testing": {"5043"}}, http.StatusBadRequest},
+		{"files2/queue", url.Values{"serial": {"21"}, "action": {"tag"}, "testing": {"--dry-run"}}, http.StatusBadRequest},
+		{"files2/queue", url.Values{"serial": {"21"}, "action": {"remove"}}, http.StatusBadRequest},
+		{"files2/queue", url.Values{"serial": {"21"}, "action": {"remove"}, "build": {"--serial"}}, http.StatusBadRequest},
+		{"files2/queue", url.Values{"serial": {"21"}, "action": {"prune"}, "cap_mb": {"-1"}}, http.StatusBadRequest},
+		{"nosuch/queue", url.Values{"serial": {"21"}, "action": {"prune"}}, http.StatusNotFound},
 	} {
 		if status, body := postForm(t, server.URL+"/builds/"+c.path, c.values); status != c.status {
 			t.Errorf("%s %v: status %d: %s", c.path, c.values, status, body)
@@ -500,7 +516,7 @@ func TestMoves(t *testing.T) {
 // There's no login: another site can't make a browser move the tags.
 func TestCrossOriginRefused(t *testing.T) {
 	server, calls := moveServer(t)
-	request, err := http.NewRequest("POST", server.URL+"/builds/files2/queue", strings.NewReader("serial=21&testing=5043"))
+	request, err := http.NewRequest("POST", server.URL+"/builds/files2/queue", strings.NewReader("serial=21&action=tag&testing=5043"))
 	if err != nil {
 		t.Fatal(err)
 	}

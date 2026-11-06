@@ -3,7 +3,7 @@
 that has to go (the Design repo's Updater.md, "A UI for releases"; UpdaterFormats.md, "Write
 order").
 
-    updater/remove.py [--config FILE] [--dry-run] <build>
+    updater/remove.py [--config FILE] [--dry-run] [--serial N] [--json] <build>
 
 The build goes into the tags document's `withdrawn` (build numbers are never reused, so it
 stays there), and a tag that names it moves back: Latest to the highest build left, Testing
@@ -20,9 +20,13 @@ Nothing is published: files/publish.py does that, and removes the files from the
 server and the bucket.
 
 --dry-run   checks everything and shows what would change, changes nothing
+--serial N  refuse unless the tags document's serial is N: the tree is still what someone
+            decided on
+--json      at the end, print what was done, or would be, as JSON on stdout
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -41,6 +45,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", help="settings file overriding defaults.env")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--serial", type=int)
+    parser.add_argument("--json", action="store_true")
     parser.add_argument("build", type=int)
     args = parser.parse_args()
 
@@ -51,6 +57,7 @@ def main():
         current = tree.tags()
         if current is None:
             common.die("%s has no tags document; there is nothing to remove" % tree.root)
+        tree.check_serial(current, args.serial)
         if build in current["withdrawn"]:
             common.die("build %d was withdrawn already" % build)
         present = tree.builds()
@@ -77,10 +84,15 @@ def main():
             common.die("the tree wouldn't be valid, nothing changed: %s" % e)
         log("the tree without build %d would be valid: %s" % (build, summary))
         archived = build in downloads.archived_builds(settings)
+        report = {"serial": current["serial"], "before": current["tags"], "after": tags, "moved": moved, "build": build,
+                  "files": len(freed), "bytes": tree.freed_size(changes, [build]), "archive_removed": archived,
+                  "dry_run": args.dry_run}
         if args.dry_run:
             log("download archives to write again: %s%s" % (", ".join("mmc-%s-*" % tag for tag in moved) or "none",
                                                            "; archive/%d/ to remove" % build if archived else ""))
             log("dry run: nothing changed")
+            if args.json:
+                print(json.dumps(report))
             return
 
         tree.clean_incoming()
@@ -98,6 +110,8 @@ def main():
         if downloads.remove_archive(settings, build):
             log("removed downloads/updater/archive/%d/" % build)
     log("build %d is withdrawn and removed from %s (not published)" % (build, tree.root))
+    if args.json:
+        print(json.dumps(report))
 
 
 if __name__ == "__main__":

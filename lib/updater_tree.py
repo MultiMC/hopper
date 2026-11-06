@@ -103,6 +103,16 @@ class Tree:
         data = self.read("tags.json")
         return formats.check_document("tags.json", data) if data is not None else None
 
+    def check_serial(self, current, serial):
+        """Stop unless the tags document (as tags() gave it) has this serial, if one is given:
+        the tree is still what someone looked at when deciding."""
+        if serial is not None and current["serial"] != serial:
+            common.die("the tags have changed: their serial is %d, not %d" % (current["serial"], serial))
+
+    def freed_size(self, changes, numbers):
+        """The bytes of the content files of these builds that the changes remove."""
+        return sum(size for sha256, size in self.content_sizes(numbers).items() if formats.content_path(sha256) in changes)
+
     def sign(self, name, doc):
         """A document and its signature file, as bytes: checked, signed with the online key,
         and the signature checked."""

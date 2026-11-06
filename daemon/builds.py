@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-"""A setup's builds and the moves of its tags, for web/ and for anyone with a shell here.
+"""A setup's builds and what can be done to them, for web/ and for anyone with a shell here.
 
     daemon/builds.py list <setup>
-    daemon/builds.py check <setup> --serial N [testing <build>] [stable <build>]
-    daemon/builds.py queue <setup> --serial N [testing <build>] [stable <build>]
+    daemon/builds.py check <setup> --serial N <action>
+    daemon/builds.py queue <setup> --serial N <action>
+
+where <action> is one of
+
+    tag [testing <build>] [stable <build>]   move the tags (updater/tag.py)
+    remove <build>                           withdraw a build (updater/remove.py)
+    prune [<MB>]                             purge what's over the cap now, or this cap this
+                                             once (updater/prune.py)
 
 list   the builds, newest first, as JSON: number, commit and its subject, when built,
-       platforms and their downloads, the tags naming it; and the tags, their serial and the
-       withdrawn builds. A setup with a new updater tree lists the tree's builds; one
-       without, the Launcher releases in RELEASES_DIR, and has no tags.
-check  what the move would do, as JSON: updater/tag.py --dry-run's report and log, and the
+       platforms and their downloads, the tags naming it, whether it has a kept archive; and
+       the tags, their serial, the withdrawn builds and the cap. A setup with a new updater tree lists
+       the tree's builds; one without, the Launcher releases in RELEASES_DIR, and has no tags.
+check  what the action would do, as JSON: the script's --dry-run report and log, and the
        builds involved. Changes nothing.
-queue  checks again and queues the Laminar job tag-<setup>, which does it and publishes.
-       Prints {"run": "tag-<setup>:<number>"}, without the number if laminarc doesn't say.
+queue  checks again and queues the Laminar job <action>-<setup>, which does it and publishes.
+       Prints {"run": "<job>:<number>"}, without the number if laminarc doesn't say.
 
 --serial is the serial `list` gave: if the tags have changed since, it's refused. Reasons
 for a refusal go to stderr, with exit status 1.
@@ -31,7 +38,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import common
 import overview
 import trigger
+import updater_downloads as downloads
 import updater_formats as formats
+
+ACTIONS = ("tag", "remove", "prune")  # updater/<action>.py, Laminar's <action>-<setup>
 
 
 def settings_of(setup):
@@ -46,8 +56,8 @@ def local_time(text):
     return common.timestamp(datetime.datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone())
 
 
-def job_of(setup):
-    return "tag-%s" % setup
+def job_of(action, setup):
+    return "%s-%s" % (action, setup)
 
 
 def subjects(commits):
@@ -68,6 +78,7 @@ def tree_builds(settings, tags):
     """The builds in the setup's new updater tree."""
     root = Path(settings["FILES_ROOT"], settings["UPDATER_ROOT"])
     names = {p.variant: p.name for p in common.PLATFORMS.values()}
+    archived = downloads.archived_builds(settings)
     named = {}
     for tag, build in tags.items():
         named.setdefault(build, []).append(tag)
@@ -82,6 +93,7 @@ def tree_builds(settings, tags):
                 url = url or overview.download_url(settings, "downloads/updater/mmc-%s-%s" % (tag, platform))
             platforms.append({"platform": platform, "url": url})
         builds.append({"build": number, "commit": doc["commit"], "built": local_time(doc["built"]), "platforms": platforms,
+                       "archived": number in archived,
                        "tags": [tag for tag in overview.TAGS if tag in named.get(number, [])]})
     return builds
 
@@ -121,37 +133,56 @@ def gather(setup):
     return {
         "setup": setup,
         "has_tree": has_tree,
-        # The job is what does it: without one, a setup's tags can only be looked at
-        "can_tag": has_tree and (trigger.LAMINAR_HOME / "cfg" / "jobs" / (job_of(setup) + ".run")).exists(),
+        # The jobs are what do it: without them, a setup's builds can only be looked at
+        "can_act": has_tree and all((trigger.LAMINAR_HOME / "cfg" / "jobs" / (job_of(action, setup) + ".run")).exists()
+                                    for action in ACTIONS),
         "serial": document.get("serial"),
         "tags": document.get("tags"),
         "withdrawn": document.get("withdrawn", []),
+        "cap_mb": int(settings["UPDATER_MAX_SIZE_MB"]) if has_tree else None,
         "builds": builds,
     }
 
 
-def check(setup, serial, moves):
-    """updater/tag.py --dry-run's report, with its log and the builds it names. Stops with
-    tag.py's reason if it refuses."""
+def check(setup, serial, action, arguments):
+    """updater/<action>.py --dry-run's report, with its log and the builds it names. Stops with
+    the script's reason if it refuses."""
     path, _ = settings_of(setup)
-    result = subprocess.run([sys.executable, str(common.HOPPER / "updater" / "tag.py"), "--config", str(path), "--dry-run", "--json",
-                             "--serial", str(serial), *moves], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run([sys.executable, str(common.HOPPER / "updater" / (action + ".py")), "--config", str(path), "--dry-run", "--json",
+                             "--serial", str(serial), *script_arguments(action, arguments)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if result.returncode:
         errors = [line for line in result.stderr.splitlines() if line.startswith("error: ")]
-        common.die(errors[-1].removeprefix("error: ") if errors else result.stderr.strip() or "updater/tag.py failed")
+        common.die(errors[-1].removeprefix("error: ") if errors else result.stderr.strip() or "updater/%s.py failed" % action)
     report = json.loads(result.stdout)
+    report["action"] = action
     report["log"] = result.stderr
-    involved = {*report["before"].values(), *report["after"].values()}
+    involved = {*report.get("before", {}).values(), *report.get("after", {}).values(), report.get("build"), *report.get("purged", [])}
     report["builds"] = {str(b["build"]): b for b in gather(setup)["builds"] if b["build"] in involved}
     return report
 
 
-def queue(setup, serial, moves):
-    check(setup, serial, moves)
-    parameters = ["%s=%s" % (tag.upper(), build) for tag, build in zip(moves[::2], moves[1::2])]
-    reason = "asked for: %s" % ", ".join(parameters)
-    output = trigger.laminarc("queue", job_of(setup), "SERIAL=%d" % serial, *parameters, reason=reason).strip()
-    return {"run": output if output.startswith(job_of(setup) + ":") else job_of(setup)}
+def script_arguments(action, arguments):
+    if action == "prune" and arguments:
+        return ["--cap-mb", arguments[0]]
+    return arguments
+
+
+def parameters_of(action, arguments):
+    """What Laminar's job takes for the arguments, which check() has accepted."""
+    if action == "tag":
+        return ["%s=%s" % (tag.upper(), build) for tag, build in zip(arguments[::2], arguments[1::2])]
+    if action == "remove":
+        return ["BUILD=%s" % arguments[0]]
+    return ["CAP_MB=%s" % argument for argument in arguments]
+
+
+def queue(setup, serial, action, arguments):
+    check(setup, serial, action, arguments)
+    job = job_of(action, setup)
+    parameters = parameters_of(action, arguments)
+    reason = "asked for: %s" % (", ".join(parameters) or action)
+    output = trigger.laminarc("queue", job, "SERIAL=%d" % serial, *parameters, reason=reason).strip()
+    return {"run": output if output.startswith(job + ":") else job}
 
 
 def main():
@@ -159,14 +190,15 @@ def main():
     parser.add_argument("command", choices=("list", "check", "queue"))
     parser.add_argument("setup")
     parser.add_argument("--serial", type=int)
-    parser.add_argument("moves", nargs="*", metavar="TAG BUILD")
+    parser.add_argument("action", nargs="?", choices=ACTIONS)
+    parser.add_argument("arguments", nargs="*")
     args = parser.parse_args()
     if args.command == "list":
         output = gather(args.setup)
     else:
-        if args.serial is None or not args.moves:
-            common.die("%s needs --serial and a move" % args.command)
-        output = (check if args.command == "check" else queue)(args.setup, args.serial, args.moves)
+        if args.serial is None or args.action is None:
+            common.die("%s needs --serial and an action" % args.command)
+        output = (check if args.command == "check" else queue)(args.setup, args.serial, args.action, args.arguments)
     print(json.dumps(output, indent=2))
 
 

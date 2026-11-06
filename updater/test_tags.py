@@ -88,6 +88,32 @@ class TestTags(unittest.TestCase):
         self.refused("the tags have changed", "tag.py", "--serial", serial - 1, "testing", 11)
         self.ok("tag.py", "--serial", serial, "testing", 11)
 
+    def test_remove_guarded_and_reported(self):
+        self.deploy(10, 11, 12)
+        serial = self.doc("tags.json")["serial"]
+        self.refused("the tags have changed", "remove.py", "--serial", serial - 1, 12)
+        report = json.loads(self.ok("remove.py", "--dry-run", "--json", "--serial", serial, 12).stdout)
+        self.assertEqual(self.doc("tags.json")["serial"], serial, "a dry run wrote")
+        self.assertEqual(report["build"], 12)
+        self.assertEqual(report["moved"], ["latest"])
+        self.assertEqual(report["after"]["latest"], 11)
+        self.assertFalse(report["archive_removed"])
+        self.assertGreater(report["files"], 0)
+        self.assertGreater(report["bytes"], 0)
+
+    def test_prune_guarded_and_reported(self):
+        self.deploy(10, 11, 12, 13)
+        serial = self.doc("tags.json")["serial"]
+        self.refused("the tags have changed", "prune.py", "--serial", serial - 1)
+        nothing = json.loads(self.ok("prune.py", "--dry-run", "--json").stdout)
+        self.assertEqual(nothing["purged"], [])
+        report = json.loads(self.ok("prune.py", "--dry-run", "--json", "--serial", serial, UPDATER_MAX_SIZE_MB=0).stdout)
+        self.assertEqual(report["purged"], [11, 12])
+        self.assertGreater(report["bytes"], 0)
+        self.assertTrue((self.files / self.settings["UPDATER_ROOT"] / "builds" / "11.json").exists(), "a dry run purged")
+        self.assertEqual(json.loads(self.ok("prune.py", "--dry-run", "--json", "--cap-mb", 0).stdout)["purged"], [11, 12])
+        self.refused("can't be negative", "prune.py", "--cap-mb=-1")
+
     def test_json_report(self):
         self.deploy(10, 11, 12)
         serial = self.doc("tags.json")["serial"]

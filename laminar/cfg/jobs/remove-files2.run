@@ -1,0 +1,17 @@
+#!/bin/bash -eu
+# Withdraws a build and publishes that: updater/remove.py, then files/publish.py. daemon/builds.py
+# queues it, the web view's Confirm among others; $SERIAL makes it refuse if the tags have
+# changed since it was checked. The job's name says the setup: remove-<setup>.
+#
+#     laminarc queue remove-files2 SERIAL=<serial> BUILD=<build>
+
+config=config/${JOB##*-}.env
+# Waits for the files tree's lock instead of stopping (nothing retries a Laminar job)
+export HOPPER_LOCK_WAIT=3600
+
+# This file is in the hopper checkout's laminar/cfg/jobs (~/laminar/cfg is a link to it)
+cd "$(dirname "$(realpath "$0")")/../../.."
+[[ -f $config ]] || { echo "no settings file $config for job $JOB" >&2; exit 1; }
+
+updater/remove.py --config "$config" --serial "$SERIAL" "$BUILD"
+files/publish.py --config "$config"

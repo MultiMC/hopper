@@ -1,0 +1,19 @@
+#!/bin/bash -eu
+# Purges what's over the new updater tree's size cap now and publishes that: updater/prune.py,
+# then files/publish.py. The release jobs do the same after each build; this is for when it
+# can't wait. daemon/builds.py queues it, the web view's Confirm among others; $SERIAL makes it
+# refuse if the tags have changed since it was checked. The job's name says the setup:
+# prune-<setup>.
+#
+#     laminarc queue prune-files2 SERIAL=<serial> [CAP_MB=<this cap, this once>]
+
+config=config/${JOB##*-}.env
+# Waits for the files tree's lock instead of stopping (nothing retries a Laminar job)
+export HOPPER_LOCK_WAIT=3600
+
+# This file is in the hopper checkout's laminar/cfg/jobs (~/laminar/cfg is a link to it)
+cd "$(dirname "$(realpath "$0")")/../../.."
+[[ -f $config ]] || { echo "no settings file $config for job $JOB" >&2; exit 1; }
+
+updater/prune.py --config "$config" --serial "$SERIAL" ${CAP_MB:+--cap-mb "$CAP_MB"}
+files/publish.py --config "$config"

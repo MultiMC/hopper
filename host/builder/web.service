@@ -1,4 +1,4 @@
-# web/: daemon/overview.py, Laminar's logs and moving tags (daemon/builds.py) in the browser.
+# web/: daemon/overview.py, Laminar's logs and acting on builds (daemon/builds.py) in the browser.
 # Caddy goes in front; it listens on 127.0.0.1 only.
 #
 #   (cd ~/hopper/web && CGO_ENABLED=0 go build -trimpath -o bin/hopper-web .)
