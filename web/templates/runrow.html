@@ -1,0 +1,34 @@
+{{define "result"}}<span class="result {{.}}">{{.}}</span>{{end}}
+
+{{define "runlink"}}<a class="mono" href="/run/{{.Job}}/{{.Number}}">{{.Run}}</a>{{end}}
+
+{{define "runs"}}
+<div class="scroll">
+<table>
+  <thead><tr><th>Run</th><th>Result</th><th>Started</th><th class="number">Took</th><th>Why</th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr>
+    <td>{{template "runlink" .}}</td>
+    <td>{{template "result" .Result}}</td>
+    <td class="mono nowrap">{{shortTime .Started}}</td>
+    <td class="mono number">{{duration .Seconds}}</td>
+    <td class="dim">{{.Reason}}</td>
+  </tr>
+  {{else}}
+  <tr><td colspan="5" class="dim">No runs yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
+{{define "summary"}}
+<p class="summary">
+  <strong>{{.Host}}</strong>
+  <span class="mono">{{slice .Time 11 19}}</span>
+  <span>code <span class="mono">{{.Code}}</span></span>
+  <span>{{size .Disk.Free}} free of {{size .Disk.Total}}</span>
+  {{if .ReleaseBuild}}<span class="result running">release build running, pid {{.ReleaseBuild}}</span>{{end}}
+</p>
+{{end}}

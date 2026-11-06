@@ -1,0 +1,7 @@
+{{define "title"}}Runs · hopper{{end}}
+
+{{define "main"}}
+<h1>Runs</h1>
+<p class="dim">The newest runs, of all jobs.</p>
+{{with .Overview.Laminar}}{{template "runs" .Runs}}{{else}}<p class="dim">There is no Laminar here.</p>{{end}}
+{{end}}

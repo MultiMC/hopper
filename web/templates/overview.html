@@ -1,0 +1,86 @@
+{{define "main"}}
+{{with .Overview}}
+{{template "summary" .}}
+
+<section class="setups">
+{{range .Setups}}
+  <article class="setup">
+    <h2>{{.Name}}</h2>
+    {{if .Error}}
+    <p class="problem">Can't read its files: {{.Error}}</p>
+    {{else}}{{with .Live}}
+    <dl>
+      {{range .ChannelRows}}
+      <dt>{{.Channel}}</dt>
+      <dd>{{range .Versions}}<div><span class="mono build">{{.ID}}</span> <span class="dim">{{range $i, $p := .Platforms}}{{if $i}}, {{end}}{{$p}}{{end}}</span></div>{{end}}</dd>
+      {{end}}
+      {{if .Website}}
+      <dt>website</dt>
+      <dd>
+        {{if eq (index .Website "test") (index .Website "production")}}
+        <div>test = production <span class="dim mono">{{index .Website "test"}}</span></div>
+        {{else}}
+        <div>test <span class="dim mono">{{index .Website "test"}}</span></div>
+        <div>production <span class="dim mono">{{index .Website "production"}}</span></div>
+        {{end}}
+      </dd>
+      {{end}}
+      {{with .Published}}
+      <dt>files</dt>
+      <dd><div>{{if .About}}{{.About}}{{else}}{{.Kind}}{{end}} <span class="dim mono">{{shortTime .Created}}</span></div></dd>
+      {{end}}
+    </dl>
+    {{end}}{{end}}
+  </article>
+{{end}}
+</section>
+
+{{with .Laminar}}
+<section>
+  <h2>Jobs</h2>
+  <p class="status">
+    {{if ne .Laminard.ActiveState "active"}}<span class="problem">laminard not running: service {{.Laminard.ActiveState}}</span>{{end}}
+    {{if .Trigger}}
+    <span class="result success">trigger running</span>
+    {{with $.Overview.TriggerLook}}<span class="{{if .Late}}problem{{else}}dim{{end}}">looked {{.Seconds}}s ago</span>{{end}}
+    {{with .Status}}{{if .Problem}}<span class="problem">last look failed: {{.Problem}}</span>{{end}}{{end}}
+    {{else}}
+    <span class="problem">trigger not running: service {{.Service.ActiveState}}</span>
+    {{end}}
+  </p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Job</th><th>Started by</th><th>Last run</th><th>Result</th><th>Started</th><th class="number">Took</th><th>Now</th></tr></thead>
+    <tbody>
+    {{range .Jobs}}
+    <tr>
+      <td class="nowrap">{{.Name}}</td>
+      <td class="dim nowrap">{{.Source}}</td>
+      {{with .LastRun}}
+      <td>{{template "runlink" .}}</td>
+      <td>{{template "result" .Result}}</td>
+      <td class="mono nowrap">{{shortTime .Started}}</td>
+      <td class="mono number">{{duration .Seconds}}</td>
+      {{else}}
+      <td colspan="4" class="dim">never ran</td>
+      {{end}}
+      <td>
+        {{if .Problem}}<span class="problem">{{.Problem}}</span>{{end}}
+        {{if .Unasked}}<span class="problem">laminard can't be asked</span>{{end}}
+        {{range .RunLinks}}<span class="result running">running</span> {{template "runlink" .}}{{end}}
+        {{if and (not .Running) .Seen.Next}}<span class="dim nowrap">next <span class="mono">{{shortTime .Seen.Next}}</span></span>{{end}}
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>Recent runs <a class="more" href="/runs">all</a></h2>
+  {{template "runs" (recent .Runs)}}
+</section>
+{{end}}
+{{end}}
+{{end}}

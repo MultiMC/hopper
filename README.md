@@ -17,6 +17,7 @@ directory down and is run from the top of the checkout, e.g.
 | Directory | What |
 |-----------|------|
 | `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing (text or `--json`), `top.py` shows it live in the terminal |
+| `web/` | The same view in the browser, with Laminar's logs: `hopper-web`, in Go with only its standard library, read-only so far |
 | `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh` for both Windows platforms, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
@@ -27,7 +28,7 @@ directory down and is run from the top of the checkout, e.g.
 | `laminar/` | Laminar, which runs the jobs: `cfg/`, its config (`jobs/<job>.run` and `.conf`, `contexts/`), linked as `~/laminar/cfg`; `build.sh` and `Containerfile` build its binaries, linked against nothing but glibc |
 | `lib/` | `common.py`, shared by the scripts: settings, platforms, the container command, locking, the files tree; `updater_formats.py`, the new updater's formats: checking, signing, the keys chain; `updater_tree.py`, a setup's new updater tree: new documents signed, the tree checked as it would be, then written in the format's order |
 | `config/` | The settings: `defaults.env` (every setting, with its default), `production.env` (none: the defaults as they are; there so every setup has a name, for Laminar's jobs `<stream>-<setup>`), `files2.env` (the files2 test system); `keys/<setup>/`, each setup's signed keys documents (public keys only) |
-| `host/` | What is installed on other machines, by machine. `builder/`: the build server's systemd user units, `laminar.service` (Laminar) and `trigger.service` (`daemon/trigger.py`, which starts Laminar's jobs). `fileserver/`: `hopper-ssh`, the only things hopper's SSH key may do on the files server |
+| `host/` | What is installed on other machines, by machine. `builder/`: the build server's systemd user units, `laminar.service` (Laminar), `trigger.service` (`daemon/trigger.py`, which starts Laminar's jobs) and `web.service` (`web/`). `fileserver/`: `hopper-ssh`, the only things hopper's SSH key may do on the files server |
 
 ### State
 
@@ -948,6 +949,28 @@ a port, and whoever may log in as `hopper` may look. It only reads: files, `syst
 promotion and retention beyond the cleanup are meant to come as commands next to the
 scripts, working on the same files tree and plain state files, that jobs or people run
 (see `UPDATER.md` in the MultiMC project directory).
+
+### Web view (`web/`, `host/builder/web.service`)
+
+    cd web && go test ./... && CGO_ENABLED=0 go build -trimpath -o bin/hopper-web .
+
+`hopper-web` shows the overview in the browser: what each setup has live and Laminar's jobs
+(`/`), the newest runs (`/runs`), and a run's log (`/run/<job>/<number>`), which grows while
+the run goes. It holds no logic of its own. The data is `daemon/overview.py --json`, run at
+most once a second however many pages are open, and a log is passed through from Laminar's
+web server as it comes. If the overview can't be had, the page says why, and it doesn't show
+an older one instead; a page that can't reach the service says "not updating".
+
+It only reads: every route is a GET. It listens on `127.0.0.1:8092`, with Caddy in front, and
+has no login, like Laminar's own site: whoever can reach it can look. Settings are in
+`web/main.go`. To try it from another machine, on the build server's data:
+
+    ssh -N -L 18091:127.0.0.1:8091 hopper@<build server> &
+    LISTEN=127.0.0.1:18092 LAMINAR_HTTP=http://127.0.0.1:18091 \
+        OVERVIEW="ssh hopper@<build server> hopper/daemon/overview.py --json" web/bin/hopper-web
+
+`/runs` lists what the overview lists, the newest 100 runs of all jobs; the hourly `meta`
+pushes older runs off it within days. Their logs stay at their URLs.
 
 
 ## Laminar (`host/builder/laminar.service`)

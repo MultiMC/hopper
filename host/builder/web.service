@@ -1,0 +1,26 @@
+# web/: daemon/overview.py and Laminar's logs in the browser, read-only. Caddy goes in front;
+# it listens on 127.0.0.1 only.
+#
+#   (cd ~/hopper/web && CGO_ENABLED=0 go build -trimpath -o bin/hopper-web .)
+#   systemctl --user link ~/hopper/host/builder/web.service
+#   systemctl --user enable --now web.service
+#
+# Linked, not copied: after a `git pull` that changes web/, build again and restart; after one
+# that changes this file, `systemctl --user daemon-reload` first.
+
+[Unit]
+Description=Hopper web service
+Documentation=file://%h/hopper/README.md
+After=laminar.service
+
+[Service]
+WorkingDirectory=%h/hopper
+ExecStart=%h/hopper/web/bin/hopper-web
+Environment=LISTEN=127.0.0.1:8092
+Environment=LAMINAR_HOME=%h/laminar
+# A crash is worth a restart, a stop isn't
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

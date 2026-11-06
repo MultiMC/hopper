@@ -1,0 +1,68 @@
+{
+  "time": "2026-11-06T15:52:11+01:00",
+  "host": "builder",
+  "code": "2254abe",
+  "release_build": null,
+  "disk": {"path": "/state", "free": 6733687156736, "total": 7997148680192},
+  "setups": [
+    {
+      "name": "production",
+      "config": "/hopper/config/production.env",
+      "live": {
+        "published": {"snapshot": "20261106-130745-published", "created": "2026-11-06T13:07:45+01:00", "kind": "published", "about": "36 files published"},
+        "channels": {
+          "stable": {"3674": ["lin32"]},
+          "develop": {"3926": ["osx64"], "4306": ["win32", "lin64"]}
+        },
+        "website": {"production": "website-1", "test": "website-2"}
+      },
+      "error": null
+    },
+    {
+      "name": "broken",
+      "config": "/hopper/config/broken.env",
+      "live": null,
+      "error": "/state/x.json: not what the scripts write there"
+    }
+  ],
+  "laminar": {
+    "home": "/laminar",
+    "laminard": {"ActiveState": "active"},
+    "service": {"ActiveState": "active"},
+    "trigger": 77,
+    "status": {"pid": 77, "interval": 60, "looked": "2026-11-06T15:51:35+01:00", "problem": null, "jobs": {}},
+    "jobs": [
+      {
+        "name": "launcher-files2",
+        "trigger": "https://github.com/MultiMC/Launcher.git develop",
+        "problem": null,
+        "seen": {},
+        "handled": null,
+        "last_run": {"run": "launcher-files2:23", "job": "launcher-files2", "result": "success", "started": "2026-11-06T12:57:53+01:00", "seconds": 391, "reason": "trigger: <new> commit", "log": "http://127.0.0.1:8091/log/launcher-files2/23"},
+        "running": ["launcher-files2:24"]
+      },
+      {
+        "name": "meta",
+        "trigger": "cron 0 * * * *",
+        "problem": "bad schedule",
+        "seen": {"next": "2026-11-06T16:00:00+01:00"},
+        "handled": null,
+        "last_run": null,
+        "running": []
+      },
+      {
+        "name": "by-hand",
+        "trigger": null,
+        "problem": null,
+        "seen": {},
+        "handled": null,
+        "last_run": null,
+        "running": null
+      }
+    ],
+    "runs": [
+      {"run": "launcher-files2:24", "job": "launcher-files2", "result": "running", "started": "2026-11-06T15:50:00+01:00", "seconds": 131, "reason": null, "log": "http://127.0.0.1:8091/log/launcher-files2/24"},
+      {"run": "launcher-files2:23", "job": "launcher-files2", "result": "success", "started": "2026-11-06T12:57:53+01:00", "seconds": 391, "reason": "trigger: <new> commit", "log": "http://127.0.0.1:8091/log/launcher-files2/23"}
+    ]
+  }
+}

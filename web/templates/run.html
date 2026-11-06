@@ -1,0 +1,24 @@
+{{define "title"}}{{.Job}}:{{.Number}} · hopper{{end}}
+
+{{define "main"}}
+<div class="run-head">
+  <h1 class="mono">{{.Job}}:{{.Number}}</h1>
+  {{with .Run}}
+  {{template "result" .Result}}
+  <span class="mono nowrap">{{shortTime .Started}}</span>
+  <span class="mono">{{duration .Seconds}}</span>
+  <span class="dim">{{.Reason}}</span>
+  {{end}}
+</div>
+{{end}}
+
+{{define "after"}}
+<div class="log-tools">
+  <span id="log-info">loading</span>
+  <label><input type="checkbox" id="follow"{{if .Run}}{{if .Run.Going}} checked{{end}}{{end}}> follow</label>
+  <a href="/run/{{.Job}}/{{.Number}}/log">plain text</a>
+</div>
+<p id="log-problem" class="problem" hidden></p>
+<pre id="log" data-url="/run/{{.Job}}/{{.Number}}/log"></pre>
+<script src="/static/log.js" defer></script>
+{{end}}

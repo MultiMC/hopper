@@ -1,0 +1,73 @@
+// Command hopper-web shows what daemon/overview.py gathers and Laminar's logs in the browser.
+// It holds no logic of its own: the data is overview.py's JSON, and a log is passed through
+// from Laminar's web server as it grows.
+//
+//	main.go      configuration, server setup, startup
+//	overview.go  overview.py's JSON, and what the pages need from it
+//	pages.go     the pages (templates/, static/) and the log stream
+//
+// Configuration is read from the environment:
+//
+//	LISTEN        default 127.0.0.1:8092; Caddy goes in front
+//	OVERVIEW      the command that prints the overview, run without a shell; default
+//	              daemon/overview.py --json, from the hopper checkout
+//	LAMINAR_HTTP  Laminar's web server, default http://127.0.0.1:8091
+//
+// Nothing here changes anything: the routes are all GET.
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+)
+
+func main() {
+	env := func(key, def string) string {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
+		return def
+	}
+	listen := env("LISTEN", "127.0.0.1:8092")
+	command := strings.Fields(env("OVERVIEW", "daemon/overview.py --json"))
+	laminar := strings.TrimRight(env("LAMINAR_HTTP", "http://127.0.0.1:8091"), "/")
+
+	s, err := newServer(commandSource(command), laminar)
+	if err != nil {
+		slog.Error("init", "err", err)
+		os.Exit(1)
+	}
+
+	// No write timeout: a running build's log stays open, and can be quiet for minutes
+	srv := &http.Server{
+		Addr:              listen,
+		Handler:           s.routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		// Followed logs would hold a graceful shutdown up until their runs end
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if srv.Shutdown(shutdownCtx) != nil {
+			srv.Close()
+		}
+	}()
+
+	slog.Info("listening", "addr", listen, "overview", command, "laminar", laminar)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("serve", "err", err)
+		os.Exit(1)
+	}
+}

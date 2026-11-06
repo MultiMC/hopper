@@ -10,3 +10,6 @@
 # Python bytecode
 __pycache__/
 
+
+# hopper-web, built by hand
+web/bin/
