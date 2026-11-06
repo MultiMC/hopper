@@ -39,8 +39,10 @@ list = [
 
 [pe]
 machine = 332  # i386
-max_os_version = "4.0"
-max_subsystem_version = "4.0"  # 4.0 = Windows XP
+# Our binaries are linked for Windows XP (5.1, launcher/steps/win32.sh); TeamCity's said 4.0,
+# MinGW's default (2026-11-06)
+max_os_version = "5.1"
+max_subsystem_version = "5.1"  # 5.1 = Windows XP
 system_dlls = [
     "advapi32.dll",
     "crypt32.dll",

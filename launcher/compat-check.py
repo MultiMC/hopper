@@ -20,7 +20,7 @@ What a description holds, and what `check` does with it:
            the bundle they may need; max_versions: no GLIBC_/GLIBCXX_/CXXABI_/GCC_ symbol
            version newer than these
   [pe]     win32*: machine: every PE has it (i386 = 332); max_os_version and
-           max_subsystem_version (4.0 = XP); system_dlls: the only DLLs from outside the
+           max_subsystem_version (5.1 = XP, 6.1 = 7); system_dlls: the only DLLs from outside the
            bundle they may import; [pe.sha256]: bundled files that must stay byte-identical
            (they come straight from the toolchain)
   [macho]  osx64*: archs: exactly these; max_minimum_macos; link_prefixes: libraries may

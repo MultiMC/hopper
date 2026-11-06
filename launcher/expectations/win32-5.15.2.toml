@@ -42,8 +42,10 @@ list = [
 
 [pe]
 machine = 332  # i386
-max_os_version = "5.1"
-max_subsystem_version = "5.1"  # 5.1 = Windows XP, as MinGW 8.1 writes it; Qt 5.15 itself needs Windows 7
+# Our binaries are linked for Windows 7 (6.1, launcher/steps/win32.sh), Qt 5.15's minimum; in
+# build 4249 they said 4.0, MinGW's default, and only the MSVC-built OpenSSL DLLs 5.1 (2026-11-06)
+max_os_version = "6.1"
+max_subsystem_version = "6.1"  # 6.1 = Windows 7
 system_dlls = [
     "advapi32.dll",
     "bcrypt.dll",

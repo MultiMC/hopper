@@ -335,7 +335,7 @@ reviewed. `describe` writes a description from an existing build; it was used on
 | `[urls]` | the listed URLs are embedded in the main binary; `"${NAME}"` is each base URL of the setting `NAME` (`FILES_MIRRORS`, `META_MIRRORS`) |
 | (no section) | the updater's keys in the main binary: every pinned root key (`--set UPDATER_ROOT_KEYS`) is there, and every string that looks like a key (64 lowercase hex digits) is a pinned root key or a key in the floor (`--set UPDATER_KEYS_FLOOR`, a file); both default to none, as in production. So a build pinned to another setup's keys fails |
 | `[elf]` (lin64, lin32) | ELF architecture; only the listed system libraries; no symbol versions newer than listed (`GLIBC_2.14`, `GLIBCXX_3.4.21`, ...) |
-| `[pe]` (win32, win32-5.15.2) | i386 only; PE OS/subsystem version at most 4.0 (XP; 5.1 for win32-5.15.2, as MinGW 8.1 writes it); only the listed system DLLs; the bundled toolchain files (Qt, MinGW runtime, OpenSSL, zlib) byte-identical (SHA-256s) |
+| `[pe]` (win32, win32-5.15.2) | i386 only; PE OS/subsystem version at most 5.1 (XP) for win32 and 6.1 (7) for win32-5.15.2, as `steps/win32.sh` links our binaries (since 2026-11-06; MinGW's default is 4.0); only the listed system DLLs; the bundled toolchain files (Qt, MinGW runtime, OpenSSL, zlib) byte-identical (SHA-256s) |
 | `[macho]` (osx64-5.15.2) | x86_64 only; minimum macOS at most 10.13; nothing linked from outside the bundle, `/usr/lib`, `/System` |
 
 `launcher/release-build.py` passes each site setting with `--set`: the build's own value if the
@@ -375,7 +375,7 @@ hand, always taken from the binaries. They are `requires` in the `--json` output
 | `arch` | `x86`, `x86_64` or `arm64`: the one ELF/PE machine or Mach-O architecture of all binaries |
 | `glibc`, `glibcxx` (Linux) | the highest `GLIBC_` and `GLIBCXX_` symbol versions needed (`2.14`, `3.4.21`) |
 | `qt` (Linux) | the highest `Qt_5.x` symbol version needed (`5.6`): every object built against Qt 5.6 or newer references `qt_version_tag` at the version of the Qt it was compiled with, so this is the minimum Qt 5 of the system the Linux builds run on |
-| `os_version` (Windows) | the higher of the PE OS and subsystem versions declared (`4.0`) |
+| `os_version` (Windows) | the higher of the PE OS and subsystem versions declared (`5.1`; `6.1` for win32-5.15.2) |
 | `os_version` (macOS) | the highest minimum macOS of the binaries (`10.13`) |
 
 The Qt requirement is a minimum version: Qt 5 keeps its binary compatibility within 5.x,

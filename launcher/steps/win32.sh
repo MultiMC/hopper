@@ -35,11 +35,13 @@ case "$PLATFORM" in
     win32)
         MINGW='T:\Qt\Tools\mingw492_32'
         QT='T:\Qt\5.6.3\mingw49_32'
+        WINDOWS_VERSION=(5 1)   # Windows XP
         OPENSSL_DLLS=("$TOOLS/OpenSSL-Win32/libeay32.dll" "$TOOLS/OpenSSL-Win32/ssleay32.dll")
         ;;
     win32-5.15.2)
         MINGW='T:\QtX\Tools\mingw810_32'
         QT='T:\QtX\5.15.2\mingw81_32'
+        WINDOWS_VERSION=(6 1)   # Windows 7, Qt 5.15's minimum
         # Qt's OpenSSL 1.1 needs the VC++ 2010 runtime, which Windows doesn't have by itself
         OPENSSL_DLLS=("$TOOLS/QtX/Tools/OpenSSL/Win_x86/bin/libcrypto-1_1.dll" "$TOOLS/QtX/Tools/OpenSSL/Win_x86/bin/libssl-1_1.dll"
                       "$TOOLS/QtX/vcredist/x86/msvcr100.dll")
@@ -57,6 +59,12 @@ CMAKE='T:\CMake-3.20.1\bin\cmake.exe'
 UPDATER_FLOOR=
 if [ -f /out/updater-keys-floor.json ]; then UPDATER_FLOOR='O:\updater-keys-floor.json'; fi
 
+# The Windows version our binaries need, in their PE headers (OS and subsystem version), so
+# the gate measures it and Windows refuses to start them on anything older. MinGW writes 4.0
+# otherwise. The toolchain's DLLs keep theirs.
+PE_VERSION="-Wl,--major-os-version,${WINDOWS_VERSION[0]},--minor-os-version,${WINDOWS_VERSION[1]}"
+PE_VERSION+=",--major-subsystem-version,${WINDOWS_VERSION[0]},--minor-subsystem-version,${WINDOWS_VERSION[1]}"
+
 cd /out/build
 $WINE "$CMAKE" -G "MinGW Makefiles" \
     -DCMAKE_MAKE_PROGRAM=mingw32-make \
@@ -64,6 +72,8 @@ $WINE "$CMAKE" -G "MinGW Makefiles" \
     -DCMAKE_CXX_COMPILER=g++ \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_INSTALL_PREFIX:PATH='O:\install\MultiMC' \
+    -DCMAKE_EXE_LINKER_FLAGS="$PE_VERSION" \
+    -DCMAKE_SHARED_LINKER_FLAGS="$PE_VERSION" \
     -DCMAKE_PREFIX_PATH="$QT" \
     -DQt5_DIR="$QT" \
     -DZLIB_ROOT='T:\GnuWin32' \
