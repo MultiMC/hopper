@@ -152,6 +152,18 @@
         table.hidden = !report.moved.length;
     }
 
+    // Lines of their own, above or below the list
+    function sentences(id, lines) {
+        var paragraph = document.getElementById(id);
+        paragraph.textContent = "";
+        lines.forEach(function (line) {
+            var div = document.createElement("div");
+            div.textContent = line;
+            paragraph.append(div);
+        });
+        paragraph.hidden = !lines.length;
+    }
+
     function fillTag(report) {
         fillMoved(report);
         report.moved.forEach(function (tag) {
@@ -187,18 +199,17 @@
 
     function fillPrune(report) {
         table.hidden = true;
-        note("Counted toward the cap: " + megabytes(report.counted) + " of " + megabytes(report.cap) + ". " +
-             report.builds_total + " builds, " + report.protected + " of them never purged.");
-        if (!report.purged.length) {
-            note("Nothing to purge.");
-            return;
-        }
+        sentences("review-intro", ["Counted toward the cap: " + megabytes(report.counted) + " of " + megabytes(report.cap) + ". " +
+                                   report.builds_total + " builds, " + report.protected + " of them never purged." +
+                                   (report.purged.length ? "" : " Nothing to purge.")]);
         report.purged.forEach(function (build) {
             var info = report.builds[String(build)] || {};
             note("Purge " + describe(build, report.builds) + (info.subject ? " (" + info.subject + ")" : ""));
         });
-        note("That frees " + megabytes(report.bytes) + ". They aren't withdrawn and no tag moves; a Launcher on one still updates.");
-        note("This can't be undone, and everything is published to the " + setup + " files site.");
+        if (report.purged.length) {
+            sentences("review-outro", ["That frees " + megabytes(report.bytes) + ". They aren't withdrawn and no tag moves; a Launcher on one still updates.",
+                                       "This can't be undone, and everything is published to the " + setup + " files site."]);
+        }
     }
 
     // Asks what the action would do, and shows that. typeThis: what must be typed to go on.
@@ -209,8 +220,12 @@
         problem.hidden = true;
         return post("check").then(function (report) {
             document.getElementById("review-title").textContent = heading;
-            document.getElementById("review-notes").textContent = "";
+            var notes = document.getElementById("review-notes");
+            notes.textContent = "";
+            sentences("review-intro", []);
+            sentences("review-outro", []);
             fillReport(report);
+            notes.hidden = !notes.children.length;
             document.getElementById("review-log").textContent = report.log;
             var nothing = report.action === "prune" && !report.purged.length;
             mustType = typeThis;
