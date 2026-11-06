@@ -3,7 +3,7 @@
 # (archive/, run/, laminar.sqlite), and bin/ with laminard and laminarc (built by
 # laminar/build.sh). Its config, the jobs, is this repo's laminar/cfg, linked as
 # ~/laminar/cfg. Its RPC is a unix socket there; its web UI listens on localhost only, for
-# Caddy, which serves it as https://hopper.peterix.cz (internal: this network and the VPN;
+# Caddy, which serves it as https://laminar.peterix.cz (internal: this network and the VPN;
 # no login, so it shows every job and log to anyone who can reach it):
 #
 #   ~/hopper/laminar/build.sh                         # the binaries, into ~/laminar/bin

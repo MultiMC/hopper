@@ -23,6 +23,8 @@
 </div>
 {{end}}
 
+{{define "downloads"}}<span class="dim">{{range $i, $d := .}}{{if $i}}, {{end}}{{if .URL}}<a href="{{.URL}}">{{.Platform}}</a>{{else}}{{.Platform}}{{end}}{{end}}</span>{{end}}
+
 {{define "summary"}}
 <p class="summary">
   <strong>{{.Host}}</strong>

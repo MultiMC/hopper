@@ -4,13 +4,13 @@
 //
 //	main.go      configuration, server setup, startup
 //	overview.go  overview.py's JSON, and what the pages need from it
-//	pages.go     the pages (templates/, static/) and the log stream
+//	pages.go     the pages (templates/, static/), the log stream and /api/overview
 //
 // Configuration is read from the environment:
 //
 //	LISTEN        default 127.0.0.1:8092; Caddy goes in front
 //	OVERVIEW      the command that prints the overview, run without a shell; default
-//	              daemon/overview.py --json, from the hopper checkout
+//	              daemon/overview.py, from the hopper checkout
 //	LAMINAR_HTTP  Laminar's web server, default http://127.0.0.1:8091
 //
 // Nothing here changes anything: the routes are all GET.
@@ -36,7 +36,7 @@ func main() {
 		return def
 	}
 	listen := env("LISTEN", "127.0.0.1:8092")
-	command := strings.Fields(env("OVERVIEW", "daemon/overview.py --json"))
+	command := strings.Fields(env("OVERVIEW", "daemon/overview.py"))
 	laminar := strings.TrimRight(env("LAMINAR_HTTP", "http://127.0.0.1:8091"), "/")
 
 	s, err := newServer(commandSource(command), laminar)

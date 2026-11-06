@@ -10,11 +10,35 @@
       "config": "/hopper/config/production.env",
       "live": {
         "published": {"snapshot": "20261106-130745-published", "created": "2026-11-06T13:07:45+01:00", "kind": "published", "about": "36 files published"},
+        "updater": null,
         "channels": {
           "stable": {"3674": ["lin32"]},
           "develop": {"3926": ["osx64"], "4306": ["win32", "lin64"]}
         },
+        "channel_downloads": {
+          "stable": {"lin32": "https://files.example/downloads/mmc-stable-lin32.tar.gz"},
+          "develop": {"lin64": "https://files.example/downloads/mmc-develop-lin64.tar.gz", "win32": "https://files.example/downloads/mmc-develop-win32.zip"}
+        },
         "website": {"production": "website-1", "test": "website-2"}
+      },
+      "error": null
+    },
+    {
+      "name": "files2",
+      "config": "/hopper/config/files2.env",
+      "live": {
+        "published": null,
+        "updater": {
+          "tags": [
+            {"tag": "latest", "build": 5043, "downloads": [{"platform": "lin64", "url": "https://files2.example/downloads/updater/mmc-latest-lin64.tar.gz"}, {"platform": "win32-5.15.2", "url": "https://files2.example/downloads/updater/mmc-latest-win32-5.15.2.zip"}]},
+            {"tag": "testing", "build": 5035, "downloads": [{"platform": "lin64", "url": "https://files2.example/downloads/updater/mmc-testing-lin64.tar.gz"}]},
+            {"tag": "stable", "build": 5034, "downloads": []}
+          ],
+          "withdrawn": [5026, 5027]
+        },
+        "channels": {"develop": {"5043": ["lin64"]}},
+        "channel_downloads": {},
+        "website": {}
       },
       "error": null
     },
@@ -38,7 +62,7 @@
         "problem": null,
         "seen": {},
         "handled": null,
-        "last_run": {"run": "launcher-files2:23", "job": "launcher-files2", "result": "success", "started": "2026-11-06T12:57:53+01:00", "seconds": 391, "reason": "trigger: <new> commit", "log": "http://127.0.0.1:8091/log/launcher-files2/23"},
+        "last_run": {"run": "launcher-files2:23", "job": "launcher-files2", "result": "success", "started": "2026-11-06T12:57:53+01:00", "seconds": 391, "reason": "trigger: <new> commit"},
         "running": ["launcher-files2:24"]
       },
       {
@@ -61,8 +85,8 @@
       }
     ],
     "runs": [
-      {"run": "launcher-files2:24", "job": "launcher-files2", "result": "running", "started": "2026-11-06T15:50:00+01:00", "seconds": 131, "reason": null, "log": "http://127.0.0.1:8091/log/launcher-files2/24"},
-      {"run": "launcher-files2:23", "job": "launcher-files2", "result": "success", "started": "2026-11-06T12:57:53+01:00", "seconds": 391, "reason": "trigger: <new> commit", "log": "http://127.0.0.1:8091/log/launcher-files2/23"}
+      {"run": "launcher-files2:24", "job": "launcher-files2", "result": "running", "started": "2026-11-06T15:50:00+01:00", "seconds": 131, "reason": null},
+      {"run": "launcher-files2:23", "job": "launcher-files2", "result": "success", "started": "2026-11-06T12:57:53+01:00", "seconds": 391, "reason": "trigger: <new> commit"}
     ]
   }
 }

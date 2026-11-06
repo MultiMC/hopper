@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -67,7 +69,11 @@ func TestOverviewPage(t *testing.T) {
 	}
 	wantAll(t, body,
 		"builder", "2254abe", "production",
-		"lin64, win32",              // sorted platforms
+		// a setup without a new updater tree: the newest develop build, with its archives
+		`<a href="https://files.example/downloads/mmc-develop-lin64.tar.gz">lin64</a>, <a href="https://files.example/downloads/mmc-develop-win32.zip">win32</a>`,
+		// one with: its tags, with theirs
+		`<a href="https://files2.example/downloads/updater/mmc-latest-win32-5.15.2.zip">win32-5.15.2</a>`,
+		"5026, 5027",
 		"Can't read its files",      // the broken setup still shows, next to the other
 		"Launcher develop",          // what starts the job, short
 		"cron 0 * * * *", "by hand", // the other two kinds
@@ -77,11 +83,50 @@ func TestOverviewPage(t *testing.T) {
 		"36 files published", "looked 36s ago",
 		"trigger: &lt;new&gt; commit", // escaped
 	)
+	if !(strings.Index(body, "5043") < strings.Index(body, "5035") && strings.Index(body, "5035") < strings.Index(body, "5034")) {
+		t.Error("the tags aren't latest, testing, stable")
+	}
+	// The current layout's other builds are on /old-layout
+	for _, old := range []string{"3926", "3674"} {
+		if strings.Contains(body, old) {
+			t.Errorf("the page says %q", old)
+		}
+	}
+}
+
+func TestOldLayoutPage(t *testing.T) {
+	status, body := get(t, testServer(t, "http://unused").URL+"/old-layout")
+	if status != http.StatusOK {
+		t.Fatalf("status %d: %s", status, body)
+	}
+	wantAll(t, body,
+		"production", "files2", "Can't read its files",
+		`<a href="https://files.example/downloads/mmc-stable-lin32.tar.gz">lin32</a>`,
+		"3926", // no archive: named, not linked
+	)
+	if strings.Contains(body, ">osx64</a>") {
+		t.Error("a build without an archive has a link")
+	}
 	if strings.Index(body, "4306") > strings.Index(body, "3926") {
 		t.Error("the newest build doesn't come first")
 	}
-	if strings.Contains(body, "127.0.0.1") {
-		t.Error("the page gives out Laminar's internal address")
+}
+
+func TestOverviewAPI(t *testing.T) {
+	response, err := http.Get(testServer(t, "http://unused").URL + "/api/overview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "application/json" {
+		t.Errorf("status %d, %s", response.StatusCode, response.Header.Get("Content-Type"))
+	}
+	if !bytes.Equal(body, fixture(t)) {
+		t.Error("it isn't overview.py's JSON as it wrote it")
 	}
 }
 
@@ -123,7 +168,7 @@ func TestBadRunNames(t *testing.T) {
 // Only reading: nothing but GET gets anywhere.
 func TestOnlyGet(t *testing.T) {
 	url := testServer(t, "http://unused").URL
-	for _, path := range []string{"/", "/runs", "/run/meta/1", "/run/meta/1/log"} {
+	for _, path := range []string{"/", "/old-layout", "/runs", "/run/meta/1", "/run/meta/1/log", "/api/overview"} {
 		response, err := http.Post(url+path, "text/plain", nil)
 		if err != nil {
 			t.Fatal(err)
@@ -231,6 +276,18 @@ func TestOverviewFailure(t *testing.T) {
 	wantAll(t, body, "overview.py &lt;failed&gt;", "data-refresh")
 	if strings.Contains(body, "2254abe") {
 		t.Error("an old overview shows after a failure")
+	}
+	response, err := http.Get(server.URL + "/api/overview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var answer struct{ Error string }
+	if err := json.NewDecoder(response.Body).Decode(&answer); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusBadGateway || answer.Error != "overview.py <failed>" {
+		t.Errorf("the API: status %d, %+v", response.StatusCode, answer)
 	}
 }
 

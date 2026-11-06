@@ -2,24 +2,22 @@
 """What's released and what Laminar is doing on this machine, gathered from files, Laminar
 and systemd.
 
-    daemon/overview.py [--json]
+    daemon/overview.py
 
 For every setup (each settings file in config/ but defaults.env: production, files2), what's
-live: the published snapshot of its files tree, the newest version in each update channel,
-the website; a file of it that isn't what the scripts write there is its "error" instead,
-and the other setups still show. For the machine: whether a release build runs (the pid
-holding its lock), the hopper checkout's commit, free space, and Laminar: each job, what
-starts it (daemon/trigger.py) and its last run, and the runs, newest first, each with the
-URL of its log.
+live: the published snapshot of its files tree, the new updater's tags, the newest version
+in each of the current layout's update channels, the download archives of these, the
+website; a file of it that isn't what the scripts write there is its "error" instead, and
+the other setups still show. For the machine: whether a release build runs (the pid holding
+its lock), the hopper checkout's commit, free space, and Laminar: each job, what starts it
+(daemon/trigger.py) and its last run, and the runs, newest first.
 
-It only reads: run it any time, as the user the jobs run as (hopper). Without --json, a short text
-summary; daemon/top.py shows the same live. The JSON is what other views read.
+It only reads: run it any time, as the user the jobs run as (hopper). It prints JSON, which
+web/ shows and serves as /api/overview.
 """
 
-import argparse
 import datetime
 import json
-import os
 import shutil
 import socket
 import sqlite3
@@ -35,8 +33,7 @@ import common
 import trigger
 
 RUNS = 100  # the newest runs listed
-# Laminar's web UI and logs: laminar.service's LAMINAR_BIND_HTTP
-LAMINAR_HTTP = os.environ.get("LAMINAR_HTTP") or "http://127.0.0.1:8091"
+TAGS = ["latest", "testing", "stable"]  # the new updater's, in the order they are shown
 
 def gather():
     return {
@@ -71,8 +68,9 @@ class Unreadable(Exception):
 
 
 def live(settings):
-    """What this setup has published: its files tree's last published snapshot, the newest
-    version in each update channel ({channel: {version id: [platforms]}}), the website."""
+    """What this setup has published: its files tree's last published snapshot, the new
+    updater's tags, the newest version in each update channel ({channel: {version id:
+    [platforms]}}) and its downloads ({channel: {platform: URL}}), the website."""
     snapshot = common.published_marker(settings)
     name = snapshot.read_text().strip() if snapshot.is_file() else None
     info_path = common.snapshots_dir(settings) / (name + ".json") if name else None
@@ -83,6 +81,7 @@ def live(settings):
     except (ValueError, TypeError):
         raise Unreadable(info_path)
     channels = {}
+    channel_downloads = {}
     for index in sorted(Path(settings["FILES_ROOT"], "update").glob("*/*/index.json")):
         try:
             versions = common.channel_versions(index.read_text())
@@ -90,13 +89,53 @@ def live(settings):
             continue
         if versions:
             newest = max(versions, key=lambda v: int(v["Id"]) if v["Id"].isdigit() else 0)
-            channels.setdefault(index.parent.name, {}).setdefault(newest["Id"], []).append(index.parent.parent.name)
+            platform, channel = index.parent.parent.name, index.parent.name
+            channels.setdefault(channel, {}).setdefault(newest["Id"], []).append(platform)
+            url = download_url(settings, "downloads/mmc-%s-%s" % (channel, platform))
+            if url:
+                channel_downloads.setdefault(channel, {})[platform] = url
     releases = Path(settings["RELEASES_DIR"])
     return {
         "published": {"snapshot": name, **(info or {})} if name else None,
+        "updater": updater(settings),
         "channels": channels,
+        "channel_downloads": channel_downloads,
         "website": {m.stem.split("-", 1)[1]: m.read_text().strip() for m in sorted(releases.glob("website-*.live"))},
     }
+
+
+def updater(settings):
+    """The new updater's tags, in the tree's tags document, with their download archives, and
+    the withdrawn builds. None where the setup has no such tree (yet)."""
+    if not settings["UPDATER_ROOT"]:
+        return None
+    path = Path(settings["FILES_ROOT"], settings["UPDATER_ROOT"], "tags.json")
+    doc = read_json(path)
+    if doc is None:
+        return None
+    try:
+        return {
+            "tags": [{"tag": tag, "build": int(doc["tags"][tag]), "downloads": tag_downloads(settings, tag)} for tag in TAGS],
+            "withdrawn": [int(build) for build in doc["withdrawn"]],
+        }
+    except (KeyError, TypeError, ValueError):
+        raise Unreadable(path)
+
+
+def tag_downloads(settings, tag):
+    urls = {name: download_url(settings, "downloads/updater/mmc-%s-%s" % (tag, name)) for name in common.PLATFORMS}
+    return [{"platform": name, "url": url} for name, url in sorted(urls.items()) if url]
+
+
+def download_url(settings, stem):
+    """The URL of a download archive in the files tree (its path without the extension), on the
+    files site's first base URL. None if it isn't there, or is a link: the current layout's
+    mmc-develop-osx64 is one to the osx64-5.15.2 archive, not the channel's build for osx64."""
+    for extension in ("tar.gz", "zip"):
+        path = Path(settings["FILES_ROOT"], "%s.%s" % (stem, extension))
+        if path.is_file() and not path.is_symlink():
+            return "%s%s.%s" % (common.site_urls(settings["FILES_MIRRORS"])[0], stem, extension)
+    return None
 
 
 LAMINAR_RESULTS = ["unknown", "queued", "running", "aborted", "failed", "success"]  # Laminar's RunState
@@ -142,11 +181,6 @@ def laminar():
     }
 
 
-def log_url(run):
-    job, number = run.split(":")
-    return "%s/log/%s/%s" % (LAMINAR_HTTP, job, number)
-
-
 def laminar_last_runs(database):
     """{job: its newest finished run}, from Laminar's database (read only)"""
     return {run["job"]: run for run in laminar_query(
@@ -176,7 +210,6 @@ def laminar_query(database, where):
         "started": common.timestamp(datetime.datetime.fromtimestamp(started)) if started else None,
         "seconds": (completed or int(time.time())) - started if started else None,  # so far, if going
         "reason": reason or None,
-        "log": log_url("%s:%d" % (name, number)),
     } for name, number, result, started, completed, reason in rows]
 
 
@@ -230,56 +263,8 @@ def read_json(path):
         raise Unreadable(path)
 
 
-def duration(seconds):
-    if seconds is None:
-        return ""
-    if seconds < 3600:
-        return "%dm%02ds" % divmod(seconds, 60)
-    return "%dh%02dm" % (seconds // 3600, seconds % 3600 // 60)
-
-
-def short_time(text):
-    """ "2026-10-27T12:00:06+01:00" -> "10-27 12:00" """
-    return text[5:16].replace("T", " ") if text else ""
-
-
-def print_text(data):
-    print("%s  %s  code %s%s" % (data["host"], data["time"], data["code"],
-                                 "  (a release build is running)" if data["release_build"] else ""))
-    for s in data["setups"]:
-        if s["error"]:
-            print("\n%s: can't read its files: %s" % (s["name"], s["error"]))
-            continue
-        live = s["live"]
-        published = live["published"]
-        print("\n%s: published %s" % (s["name"], published["snapshot"] if published else "-"))
-        for channel, versions in sorted(live["channels"].items()):
-            print("  %-13s %s" % (channel, " ".join(sorted(versions, key=lambda v: int(v) if v.isdigit() else 0, reverse=True))))
-        if live["website"]:
-            print("  %-13s %s" % ("website", "  ".join("%s %s" % item for item in sorted(live["website"].items()))))
-    lam = data["laminar"]
-    if lam:
-        print("\nlaminar: laminard %s, trigger %s%s" % (
-            lam["laminard"].get("ActiveState"), "running" if lam["trigger"] else "not running",
-            ", last look failed: %s" % lam["status"]["problem"] if (lam["status"] or {}).get("problem") else ""))
-        for job in lam["jobs"]:
-            last = job["last_run"]
-            print("  %-23s %-40s %s%s%s" % (
-                job["name"], job["trigger"] or ("problem: %s" % job["problem"] if job["problem"] else "by hand"),
-                "%s %s %s %s" % (last["run"], last["result"], short_time(last["started"]), duration(last["seconds"])) if last else "-",
-                "  running %s" % " ".join(job["running"]) if job["running"] else "",
-                "  next %s" % short_time(job["seen"]["next"]) if job["seen"].get("next") else ""))
-
-
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--json", action="store_true", help="everything, as JSON")
-    args = parser.parse_args()
-    data = gather()
-    if args.json:
-        print(json.dumps(data, indent=2))
-    else:
-        print_text(data)
+    print(json.dumps(gather(), indent=2))
 
 
 if __name__ == "__main__":

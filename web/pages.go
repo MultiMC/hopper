@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -42,7 +43,7 @@ func newServer(src source, laminar string) (*server, error) {
 		},
 	}
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"overview", "runs", "run", "error"} {
+	for _, name := range []string{"overview", "oldlayout", "runs", "run", "error"} {
 		page, err := template.New("layout.html").Funcs(funcs).ParseFS(files,
 			"templates/layout.html", "templates/runrow.html", "templates/"+name+".html")
 		if err != nil {
@@ -60,9 +61,11 @@ func newServer(src source, laminar string) (*server, error) {
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.withOverview("overview", s.overviewData))
+	mux.HandleFunc("GET /old-layout", s.withOverview("oldlayout", s.overviewData))
 	mux.HandleFunc("GET /runs", s.withOverview("runs", s.overviewData))
 	mux.HandleFunc("GET /run/{job}/{number}", s.withOverview("run", s.runData))
 	mux.HandleFunc("GET /run/{job}/{number}/log", s.handleLog)
+	mux.HandleFunc("GET /api/overview", s.handleOverviewAPI)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(s.static)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src data:; base-uri 'none'; frame-ancestors 'none'")
@@ -134,6 +137,20 @@ func (s *server) render(w http.ResponseWriter, status int, page string, data pag
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	w.Write(out.Bytes())
+}
+
+// handleOverviewAPI serves overview.py's JSON as it wrote it. If it can't be had: 502 and
+// {"error": why}, not an older one.
+func (s *server) handleOverviewAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	o, err := s.overviews.get(r.Context())
+	if err != nil {
+		slog.Error("overview", "err", err)
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	w.Write(o.raw)
 }
 
 // handleLog passes a run's log through from Laminar's web server: all of it for a finished

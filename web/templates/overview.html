@@ -10,10 +10,19 @@
     <p class="problem">Can't read its files: {{.Error}}</p>
     {{else}}{{with .Live}}
     <dl>
-      {{range .ChannelRows}}
-      <dt>{{.Channel}}</dt>
-      <dd>{{range .Versions}}<div><span class="mono build">{{.ID}}</span> <span class="dim">{{range $i, $p := .Platforms}}{{if $i}}, {{end}}{{$p}}{{end}}</span></div>{{end}}</dd>
+      {{with .Updater}}
+      {{range .Tags}}
+      <dt>{{.Tag}}</dt>
+      <dd><span class="mono build">{{.Build}}</span> {{template "downloads" .Downloads}}</dd>
       {{end}}
+      {{with .Withdrawn}}
+      <dt>withdrawn</dt>
+      <dd class="mono dim">{{range $i, $b := .}}{{if $i}}, {{end}}{{$b}}{{end}}</dd>
+      {{end}}
+      {{else}}{{with .NewestDevelop}}
+      <dt>develop</dt>
+      <dd><span class="mono build">{{.ID}}</span> {{template "downloads" .Platforms}}</dd>
+      {{end}}{{end}}
       {{if .Website}}
       <dt>website</dt>
       <dd>

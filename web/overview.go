@@ -24,6 +24,8 @@ type overview struct {
 	Disk         disk     `json:"disk"`
 	Setups       []setup  `json:"setups"`
 	Laminar      *laminar `json:"laminar"` // nil: no Laminar here
+
+	raw []byte // the JSON as overview.py wrote it, for /api/overview
 }
 
 type disk struct {
@@ -38,9 +40,28 @@ type setup struct {
 }
 
 type live struct {
-	Published *published                     `json:"published"`
-	Channels  map[string]map[string][]string `json:"channels"`
-	Website   map[string]string              `json:"website"`
+	Published        *published                     `json:"published"`
+	Updater          *updater                       `json:"updater"` // nil: no new updater tree
+	Channels         map[string]map[string][]string `json:"channels"`
+	ChannelDownloads map[string]map[string]string   `json:"channel_downloads"`
+	Website          map[string]string              `json:"website"`
+}
+
+type updater struct {
+	Tags      []tag `json:"tags"`
+	Withdrawn []int `json:"withdrawn"`
+}
+
+type tag struct {
+	Tag       string     `json:"tag"`
+	Build     int        `json:"build"`
+	Downloads []download `json:"downloads"`
+}
+
+// download is a platform and its archive. URL empty: there's no archive to link.
+type download struct {
+	Platform string `json:"platform"`
+	URL      string `json:"url"`
 }
 
 type published struct {
@@ -138,7 +159,7 @@ type channelRow struct {
 
 type channelVersion struct {
 	ID        string
-	Platforms []string
+	Platforms []download
 }
 
 // ChannelRows is the update channels in order, each one's newest builds first.
@@ -149,7 +170,11 @@ func (l live) ChannelRows() []channelRow {
 		for id, platforms := range versions {
 			platforms = slices.Clone(platforms)
 			slices.Sort(platforms)
-			row.Versions = append(row.Versions, channelVersion{id, platforms})
+			downloads := make([]download, 0, len(platforms))
+			for _, platform := range platforms {
+				downloads = append(downloads, download{platform, l.ChannelDownloads[channel][platform]})
+			}
+			row.Versions = append(row.Versions, channelVersion{id, downloads})
 		}
 		sort.Slice(row.Versions, func(a, b int) bool {
 			return versionNumber(row.Versions[a].ID) > versionNumber(row.Versions[b].ID)
@@ -158,6 +183,17 @@ func (l live) ChannelRows() []channelRow {
 	}
 	sort.Slice(rows, func(a, b int) bool { return rows[a].Channel < rows[b].Channel })
 	return rows
+}
+
+// NewestDevelop is the develop channel's newest build, what a setup without a new updater
+// tree releases.
+func (l live) NewestDevelop() *channelVersion {
+	for _, row := range l.ChannelRows() {
+		if row.Channel == "develop" && len(row.Versions) > 0 {
+			return &row.Versions[0]
+		}
+	}
+	return nil
 }
 
 func versionNumber(id string) int {
@@ -233,6 +269,7 @@ func parseOverview(data []byte) (*overview, error) {
 	if o.Time == "" {
 		return nil, errors.New("the overview isn't what overview.py writes: it has no time")
 	}
+	o.raw = data
 	return &o, nil
 }
 

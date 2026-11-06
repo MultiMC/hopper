@@ -1,0 +1,25 @@
+{{define "title"}}Old layout · hopper{{end}}
+
+{{define "main"}}
+<h1>Old layout</h1>
+<p class="dim">The update channels Launchers on the old updater read, and their archives. The stable channel has been frozen since 2023.</p>
+<section class="setups">
+{{range .Overview.Setups}}
+  <article class="setup">
+    <h2>{{.Name}}</h2>
+    {{if .Error}}
+    <p class="problem">Can't read its files: {{.Error}}</p>
+    {{else}}{{with .Live}}
+    <dl>
+      {{range .ChannelRows}}
+      <dt>{{.Channel}}</dt>
+      <dd>{{range .Versions}}<div><span class="mono build">{{.ID}}</span> {{template "downloads" .Platforms}}</div>{{end}}</dd>
+      {{else}}
+      <dt class="dim">none</dt><dd></dd>
+      {{end}}
+    </dl>
+    {{end}}{{end}}
+  </article>
+{{end}}
+</section>
+{{end}}
