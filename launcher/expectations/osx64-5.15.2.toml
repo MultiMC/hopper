@@ -48,7 +48,6 @@ list = [
     "Contents/MacOS/libLauncher_iconfix.dylib",
     "Contents/MacOS/libLauncher_nbt++.dylib",
     "Contents/MacOS/libLauncher_quazip.dylib",
-    "Contents/MacOS/libLauncher_rainbow.dylib",
     "Contents/MacOS/platforms/libqcocoa.dylib",
     "Contents/MacOS/styles/libqmacstyle.dylib",
     "Contents/Resources/MultiMC.icns",

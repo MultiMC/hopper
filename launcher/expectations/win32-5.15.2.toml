@@ -26,7 +26,6 @@ list = [
     "libLauncher_nbt++.dll",
     "libLauncher_nbt++.dll.a",
     "libLauncher_quazip.dll",
-    "libLauncher_rainbow.dll",
     "libcrypto-1_1.dll",
     "libgcc_s_dw2-1.dll",
     "libssl-1_1.dll",

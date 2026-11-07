@@ -11,7 +11,6 @@ list = [
     "bin/libLauncher_iconfix.so",
     "bin/libLauncher_nbt++.so",
     "bin/libLauncher_quazip.so",
-    "bin/libLauncher_rainbow.so",
 ]
 
 [elf]
