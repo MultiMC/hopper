@@ -109,6 +109,8 @@ type run struct {
 	Started string `json:"started"`
 	Seconds *int   `json:"seconds"`
 	Reason  string `json:"reason"`
+	// queued, and stops when its turn comes
+	Cancelled bool `json:"cancelled"`
 }
 
 // Number is the run's number, for its URL.
@@ -120,6 +122,11 @@ func (r run) Number() string {
 // Going says the run isn't finished: its log may still grow.
 func (r run) Going() bool {
 	return r.Result == "running" || r.Result == "queued"
+}
+
+// Cancellable: it's queued, and not cancelled yet.
+func (r run) Cancellable() bool {
+	return r.Result == "queued" && !r.Cancelled
 }
 
 // Source is what starts the job, short: "Launcher develop", "cron 0 12 * * *", "by hand".

@@ -1,0 +1,11 @@
+#!/bin/bash
+# Laminar runs this first in every run. A run cancelled while it was queued (daemon/runs.py
+# cancel) stops here, before its job starts: aborting itself ends it as aborted.
+mark="$LAMINAR_HOME/cancelled/$JOB:$RUN"
+if [[ -e $mark ]]; then
+    echo "Cancelled while queued: $(cat "$mark")"
+    # laminarc reaches laminard by LAMINAR_BIND_RPC, from laminar.service's environment
+    "$LAMINAR_HOME/bin/laminarc" abort "$JOB" "$RUN"
+    # Only if the abort didn't take: the run still mustn't go on
+    exit 1
+fi

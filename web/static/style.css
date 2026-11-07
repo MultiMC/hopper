@@ -403,6 +403,10 @@ input[type="number"], input[type="text"] {
     width: 100px;
 }
 
+form.cancel {
+    display: inline;
+}
+
 .dialog-buttons {
     display: flex;
     justify-content: flex-end;

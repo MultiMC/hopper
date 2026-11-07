@@ -16,7 +16,7 @@ directory down and is run from the top of the checkout, e.g.
 
 | Directory | What |
 |-----------|------|
-| `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing, as JSON, for `web/`; `builds.py` lists a setup's builds, and checks and queues moving tags, withdrawing and pruning |
+| `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing, as JSON, for `web/`; `builds.py` lists a setup's builds, and checks and queues moving tags, withdrawing and pruning; `runs.py` cancels queued runs |
 | `web/` | The view of all this in the browser, with Laminar's logs, the actions on builds, and `/api/overview`: `hopper-web`, in Go with only its standard library |
 | `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh` for both Windows platforms, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
@@ -966,7 +966,7 @@ as it comes. If the overview can't be had, the page says why, and it doesn't sho
 one instead (the API answers 502 and `{"error": why}`); a page that can't reach the service
 says "not updating".
 
-Everything is a GET except the actions on a setup's builds (below). It listens on `127.0.0.1:8092`, with
+Everything is a GET except the actions on a setup's builds (below) and cancelling a queued run. It listens on `127.0.0.1:8092`, with
 Caddy in front as https://hopper.peterix.cz, and has no login, like Laminar's own site:
 whoever can reach it can look, and act on files2's builds; so runs don't say who asked for them.
 Requests from other sites are refused (`http.CrossOriginProtection`). Settings are in `web/main.go`. To try it from another machine, on the build server's
@@ -975,10 +975,26 @@ data:
     ssh -N -L 18091:127.0.0.1:8091 hopper@<build server> &
     LISTEN=127.0.0.1:18092 LAMINAR_HTTP=http://127.0.0.1:18091 \
         OVERVIEW="ssh hopper@<build server> hopper/daemon/overview.py" \
-        BUILDS="ssh hopper@<build server> hopper/daemon/builds.py" web/bin/hopper-web
+        BUILDS="ssh hopper@<build server> hopper/daemon/builds.py" \
+        RUNS="ssh hopper@<build server> hopper/daemon/runs.py" web/bin/hopper-web
 
 `/runs` lists what the overview lists, the newest 100 runs of all jobs; the hourly `meta`
 pushes older runs off it within days. Their logs stay at their URLs.
+
+A queued run has **Cancel** next to it, there and on its page, which asks first.
+
+### Cancelling a queued run (`daemon/runs.py`, `laminar/cfg/before`)
+
+    daemon/runs.py cancel <job> <number>
+
+Laminar can only abort a run that has started, so a queued one is cancelled in two steps.
+`runs.py` refuses unless Laminar lists the run as queued, writes a mark,
+`~/laminar/cancelled/<job>:<number>` (when it was cancelled), and checks the queue again: if
+the run started meanwhile, it says so, and the run's log shows whether it stopped. When the
+run's turn comes, `cfg/before`, which Laminar runs first in every run, finds the mark, logs
+"Cancelled while queued" and aborts the run before its job starts: it ends as `aborted`.
+The overview shows a marked queued run as cancelled. The marks stay, as a record; run numbers
+are never used again.
 
 ### A setup's builds and the actions on them (`daemon/builds.py`, Laminar's `<action>-<setup>`)
 
@@ -1016,7 +1032,7 @@ refusal: reload the page, and see the current state.
 ## Laminar (`host/builder/laminar.service`)
 
 [Laminar](https://laminar.ohwg.net), a small CI server, runs jobs as the `hopper` user from
-`~/laminar` (`LAMINAR_HOME`): Laminar's own files (`archive/`, `run/`, `laminar.sqlite`), and
+`~/laminar` (`LAMINAR_HOME`): Laminar's own files (`archive/`, `run/`, `laminar.sqlite`), hopper's `cancelled/` (below), and
 `bin/` with `laminard` and `laminarc`. Its config is this repo's `laminar/cfg`, linked as
 `~/laminar/cfg`. Each job is `laminar/cfg/jobs/<job>.run`, any executable; Laminar keeps every
 run, its whole log and its result, and shows them at https://laminar.peterix.cz (Caddy in

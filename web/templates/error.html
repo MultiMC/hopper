@@ -1,6 +1,6 @@
 {{define "title"}}Problem · hopper{{end}}
 
 {{define "main"}}
-<h1>Can't show this</h1>
+<h1>{{or .Heading "Can't show this"}}</h1>
 <p class="problem mono">{{.Error}}</p>
 {{end}}

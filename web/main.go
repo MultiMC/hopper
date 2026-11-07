@@ -1,7 +1,7 @@
 // Command hopper-web shows what daemon/overview.py gathers and Laminar's logs in the browser.
 // It holds no logic of its own: the data is overview.py's JSON, a log is passed through from
-// Laminar's web server as it grows, and actions on builds are checked and queued by
-// daemon/builds.py.
+// Laminar's web server as it grows, actions on builds are checked and queued by
+// daemon/builds.py, and queued runs are cancelled by daemon/runs.py.
 //
 //	main.go      configuration, server setup, startup
 //	overview.go  overview.py's JSON, and what the pages need from it
@@ -14,11 +14,12 @@
 //	OVERVIEW      the command that prints the overview, run without a shell; default
 //	              daemon/overview.py, from the hopper checkout
 //	BUILDS        the command for a setup's builds, likewise; default daemon/builds.py
+//	RUNS          the command that cancels queued runs, likewise; default daemon/runs.py
 //	LAMINAR_HTTP  Laminar's web server, default http://127.0.0.1:8091
 //
 // The only routes that aren't GET are the actions on a setup's builds (moving tags,
 // withdrawing, pruning): POST /builds/<setup>/check, which changes nothing, and /queue, which
-// queues the Laminar job that does it.
+// queues the Laminar job that does it; and POST /run/<job>/<number>/cancel, for a queued run.
 package main
 
 import (
@@ -45,8 +46,9 @@ func main() {
 	laminar := strings.TrimRight(env("LAMINAR_HTTP", "http://127.0.0.1:8091"), "/")
 
 	builds := strings.Fields(env("BUILDS", "daemon/builds.py"))
+	runs := strings.Fields(env("RUNS", "daemon/runs.py"))
 
-	s, err := newServer(commandSource(command), runCommand(builds), laminar)
+	s, err := newServer(commandSource(command), runCommand(builds), runCommand(runs), laminar)
 	if err != nil {
 		slog.Error("init", "err", err)
 		os.Exit(1)

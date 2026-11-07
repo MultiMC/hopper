@@ -5,6 +5,7 @@
   <h1 class="mono">{{.Job}}:{{.Number}}</h1>
   {{with .Run}}
   {{template "result" .Result}}
+  {{template "cancel" .}}
   <span class="mono nowrap">{{shortTime .Started}}</span>
   <span class="mono">{{duration .Seconds}}</span>
   <span class="dim">{{.Reason}}</span>

@@ -29,12 +29,13 @@ var (
 type server struct {
 	overviews *overviewCache
 	builds    command
+	runs      command
 	laminar   string
 	pages     map[string]*template.Template
 	static    fs.FS
 }
 
-func newServer(src source, builds command, laminar string) (*server, error) {
+func newServer(src source, builds, runs command, laminar string) (*server, error) {
 	funcs := template.FuncMap{
 		"duration":  duration,
 		"shortTime": shortTime,
@@ -56,7 +57,7 @@ func newServer(src source, builds command, laminar string) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &server{&overviewCache{source: src, ttl: time.Second}, builds, laminar, pages, static}, nil
+	return &server{&overviewCache{source: src, ttl: time.Second}, builds, runs, laminar, pages, static}, nil
 }
 
 func (s *server) routes() http.Handler {
@@ -66,6 +67,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /runs", s.withOverview("runs", s.overviewData))
 	mux.HandleFunc("GET /run/{job}/{number}", s.withOverview("run", s.runData))
 	mux.HandleFunc("GET /run/{job}/{number}/log", s.handleLog)
+	mux.HandleFunc("POST /run/{job}/{number}/cancel", s.handleCancel)
 	mux.HandleFunc("GET /api/overview", s.handleOverviewAPI)
 	mux.HandleFunc("GET /builds/{setup}", s.handleBuilds)
 	mux.HandleFunc("GET /api/builds/{setup}", s.handleBuildsAPI)
@@ -87,6 +89,8 @@ type pageData struct {
 	Refresh  bool
 	Overview *overview
 	Error    string
+	// the error page's heading, if not the usual one
+	Heading string
 	// the run page
 	Job, Number string
 	Run         *run
@@ -146,6 +150,24 @@ func (s *server) render(w http.ResponseWriter, status int, page string, data pag
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	w.Write(out.Bytes())
+}
+
+// handleCancel cancels a queued run (daemon/runs.py cancel) and goes on to the run's page, or
+// shows why it wasn't cancelled.
+func (s *server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	job, number := r.PathValue("job"), r.PathValue("number")
+	if !validRun(job, number) {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := s.runs(r.Context(), "cancel", job, number); err != nil {
+		slog.Error("cancel", "run", job+":"+number, "err", err)
+		o, _ := s.overviews.get(r.Context())
+		s.render(w, http.StatusConflict, "error", pageData{Overview: o, Heading: "Not cancelled", Error: err.Error()})
+		return
+	}
+	slog.Info("cancel", "run", job+":"+number)
+	http.Redirect(w, r, "/run/"+job+"/"+number, http.StatusSeeOther)
 }
 
 // handleOverviewAPI serves overview.py's JSON as it wrote it. If it can't be had: 502 and

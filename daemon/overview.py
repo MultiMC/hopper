@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 import common
+import runs
 import trigger
 
 RUNS = 100  # the newest runs listed
@@ -210,6 +211,8 @@ def laminar_query(database, where):
         "started": common.timestamp(datetime.datetime.fromtimestamp(started)) if started else None,
         "seconds": (completed or int(time.time())) - started if started else None,  # so far, if going
         "reason": reason or None,
+        # queued, and stops when its turn comes (daemon/runs.py cancel)
+        "cancelled": result is None and not started and runs.is_cancelled("%s:%d" % (name, number)),
     } for name, number, result, started, completed, reason in rows]
 
 

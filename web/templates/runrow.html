@@ -1,5 +1,7 @@
 {{define "result"}}<span class="result {{.}}">{{.}}</span>{{end}}
 
+{{define "cancel"}}{{if .Cancelled}}<span class="dim">cancelled</span>{{else if .Cancellable}}<form class="cancel" method="post" action="/run/{{.Job}}/{{.Number}}/cancel" data-run="{{.Run}}"><button class="small">Cancel</button></form>{{end}}{{end}}
+
 {{define "runlink"}}<a class="mono" href="/run/{{.Job}}/{{.Number}}">{{.Run}}</a>{{end}}
 
 {{define "runs"}}
@@ -10,7 +12,7 @@
   {{range .}}
   <tr>
     <td>{{template "runlink" .}}</td>
-    <td>{{template "result" .Result}}</td>
+    <td class="nowrap">{{template "result" .Result}} {{template "cancel" .}}</td>
     <td class="mono nowrap">{{shortTime .Started}}</td>
     <td class="mono number">{{duration .Seconds}}</td>
     <td class="dim">{{.Reason}}</td>

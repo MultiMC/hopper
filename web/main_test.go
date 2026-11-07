@@ -32,7 +32,7 @@ func testServer(t *testing.T, laminarURL string) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := newServer(func(context.Context) (*overview, error) { return o, nil }, fakeBuilds(nil), laminarURL)
+	s, err := newServer(func(context.Context) (*overview, error) { return o, nil }, fakeBuilds(nil), fakeBuilds(nil), laminarURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,43 @@ func TestRunsPage(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("status %d: %s", status, body)
 	}
-	wantAll(t, body, "launcher-files2:24", "launcher-files2:23", "6m31s")
+	wantAll(t, body, "launcher-files2:24", "launcher-files2:23", "6m31s",
+		`action="/run/tag-files2/3/cancel"`, `<span class="dim">cancelled</span>`)
+	if strings.Contains(body, `action="/run/tag-files2/2/cancel"`) || strings.Contains(body, `action="/run/launcher-files2/24/cancel"`) {
+		t.Error("a run that's cancelled already or running can be cancelled")
+	}
+}
+
+func TestCancel(t *testing.T) {
+	server, calls := moveServer(t)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := client.PostForm(server.URL+"/run/tag-files2/3/cancel", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusSeeOther || response.Header.Get("Location") != "/run/tag-files2/3" {
+		t.Errorf("status %d, to %q", response.StatusCode, response.Header.Get("Location"))
+	}
+	if len(*calls) != 1 || strings.Join((*calls)[0], " ") != "cancel tag-files2 3" {
+		t.Errorf("calls %v", *calls)
+	}
+
+	status, body := postForm(t, server.URL+"/run/launcher-files2/24/cancel", nil)
+	if status != http.StatusConflict {
+		t.Errorf("a refusal: status %d", status)
+	}
+	wantAll(t, body, "Not cancelled", "has started already")
+
+	*calls = nil
+	for _, path := range []string{"/run/a%2Fb/1/cancel", "/run/meta/x/cancel", "/run/meta/-1/cancel"} {
+		if status, _ := postForm(t, server.URL+path, nil); status != http.StatusNotFound {
+			t.Errorf("%s: status %d", path, status)
+		}
+	}
+	if len(*calls) != 0 {
+		t.Errorf("a bad request reached the script: %v", *calls)
+	}
 }
 
 func TestRunPage(t *testing.T) {
@@ -259,7 +295,7 @@ func TestOverviewFailure(t *testing.T) {
 			return nil, failure
 		}
 		return o, nil
-	}, fakeBuilds(nil), "http://unused")
+	}, fakeBuilds(nil), fakeBuilds(nil), "http://unused")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,6 +417,11 @@ func fakeBuilds(calls *[][]string) command {
 				return nil, errors.New("the tags have changed")
 			}
 			return []byte(`{"run": "tag-files2:3"}`), nil
+		case "cancel":
+			if args[2] == "24" {
+				return nil, errors.New("launcher-files2:24 has started already")
+			}
+			return []byte(`{"cancelled": "tag-files2:3"}`), nil
 		}
 		return nil, errors.New("no such command")
 	}
@@ -393,7 +434,7 @@ func moveServer(t *testing.T) (*httptest.Server, *[][]string) {
 		t.Fatal(err)
 	}
 	calls := &[][]string{}
-	s, err := newServer(func(context.Context) (*overview, error) { return o, nil }, fakeBuilds(calls), "http://unused")
+	s, err := newServer(func(context.Context) (*overview, error) { return o, nil }, fakeBuilds(calls), fakeBuilds(calls), "http://unused")
 	if err != nil {
 		t.Fatal(err)
 	}
