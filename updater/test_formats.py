@@ -63,18 +63,21 @@ def sample_build(build):
         "built": "2026-10-30T10:00:00Z",
         "variants": {
             "linux-x86_64-qt5": {
+                "name": "Linux, 64-bit",
                 "supersedes": [],
                 "requires": {"os": "linux", "arch": "x86_64", "glibc": "2.19", "glibcxx": "3.4.21", "qt": "5.6"},
                 "files": linux,
                 "links": [],
             },
             "windows-x86-qt5.6": {
+                "name": "Windows, Qt 5.6",
                 "supersedes": [],
                 "requires": {"os": "windows", "arch": "x86", "os_version": "5.1"},
                 "files": windows,
                 "links": [],
             },
             "macos-x86_64-qt5.15": {
+                "name": "macOS, Qt 5.15",
                 "supersedes": ["macos-x86_64-qt5.6"],
                 "requires": {"os": "macos", "arch": "x86_64", "os_version": "10.13"},
                 "files": macos,
@@ -460,6 +463,13 @@ class TestDocuments(unittest.TestCase):
     def test_requirements_version(self):
         self.build["variants"]["windows-x86-qt5.6"]["requires"]["os_version"] = "5.01"
         self.assertInvalid("os_version", self.build)
+
+    def test_variant_name(self):
+        for name in ["", " leading", "trailing ", "tab\there", "caf\u00e9", "x" * 65]:
+            self.macos(self.build)["name"] = name
+            self.assertInvalid("name", self.build)
+        self.macos(self.build)["name"] = "x" * 64
+        self.check(self.build)
 
     def test_supersedes_itself(self):
         self.macos(self.build)["supersedes"] = ["macos-x86_64-qt5.15"]

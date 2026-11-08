@@ -55,6 +55,8 @@ class Platform:
     bundle: str          # the top directory of its install tree
     archive: str         # the download package format: "tar.gz" or "zip"
     variant: str         # its variant ID in the new updater's build manifests (UpdaterFormats.md)
+    variant_name: str    # the variant's name, shown to users
+    supersedes: tuple = ()  # variant IDs it replaces: Launchers move to it unless their users object
 
     def package(self, branch):
         """The download package's name, as TeamCity's deploy named it."""
@@ -62,11 +64,13 @@ class Platform:
 
 
 PLATFORMS = {p.name: p for p in [
-    Platform("lin64", "IMAGE_LIN64", "linux.sh", "MultiMC", "tar.gz", "linux-x86_64-qt5"),
-    Platform("lin32", "IMAGE_LIN32", "linux.sh", "MultiMC", "tar.gz", "linux-x86-qt5"),
-    Platform("win32", "IMAGE_WIN32", "win32.sh", "MultiMC", "zip", "windows-x86-qt5.6"),
-    Platform("win32-5.15.2", "IMAGE_WIN32_QT515", "win32.sh", "MultiMC", "zip", "windows-x86-qt5.15"),
-    Platform("osx64-5.15.2", "IMAGE_OSX64", "osx64.sh", "MultiMC.app", "tar.gz", "macos-x86_64-qt5.15"),
+    Platform("lin64", "IMAGE_LIN64", "linux.sh", "MultiMC", "tar.gz", "linux-x86_64-qt5", "Linux, 64-bit"),
+    Platform("lin32", "IMAGE_LIN32", "linux.sh", "MultiMC", "tar.gz", "linux-x86-qt5", "Linux, 32-bit"),
+    Platform("win32", "IMAGE_WIN32", "win32.sh", "MultiMC", "zip", "windows-x86-qt5.6",
+             "Windows, Qt 5.6 (for Windows XP and Vista)"),
+    Platform("win32-5.15.2", "IMAGE_WIN32_QT515", "win32.sh", "MultiMC", "zip", "windows-x86-qt5.15",
+             "Windows, Qt 5.15", ("windows-x86-qt5.6",)),
+    Platform("osx64-5.15.2", "IMAGE_OSX64", "osx64.sh", "MultiMC.app", "tar.gz", "macos-x86_64-qt5.15", "macOS, Qt 5.15"),
 ]}
 
 

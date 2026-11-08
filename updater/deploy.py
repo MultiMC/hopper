@@ -155,7 +155,7 @@ def build_manifest(release, manifest, platforms, work):
             common.die("%s: the manifest has no requirements for %s (a release from before the gate measured them)"
                        % (release, p.name))
         files, links, found = bundle(release / info["deploy_archive"], p, work / p.name)
-        variants[p.variant] = {"supersedes": [], "requires": info["requires"], "files": files, "links": links}
+        variants[p.variant] = {"name": p.variant_name, "supersedes": list(p.supersedes), "requires": info["requires"], "files": files, "links": links}
         for sha256, path in found.items():
             contents.setdefault(sha256, path)
     doc = {"type": "build", "format": formats.FORMAT, "build": manifest["build_number"],

@@ -24,6 +24,7 @@ MAX_MIRRORS = 16
 MAX_KEYS = 4
 MAX_PATH = 512
 MAX_VARIANT_ID = 64
+MAX_VARIANT_NAME = 64
 # Following links further than this counts as a loop
 MAX_LINK_DEPTH = 40
 EXPIRY_WARNING = datetime.timedelta(days=90)
@@ -33,6 +34,8 @@ COMMIT = re.compile(r"[0-9a-f]{40}")
 TIME = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 VERSION = re.compile(r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*")
 VARIANT_ID = re.compile(r"(windows|macos|linux)-(x86_64|x86|arm64)-[a-z0-9.]+(-[a-z0-9.]+)*")
+# Printable ASCII, not starting or ending with a space
+VARIANT_NAME = re.compile(r"[\x21-\x7e]([\x20-\x7e]*[\x21-\x7e])?")
 SIGNATURE_LINE = re.compile(r"([0-9a-f]{64}) ([0-9a-f]{128})\n")
 # Printable ASCII without what Windows doesn't allow in names
 PATH_CHARS = re.compile(r"[\x20-\x7e]+")
@@ -280,7 +283,10 @@ def _resolve(link_path, links, where):
 
 
 def _check_variant(variant_id, variant, where):
-    _fields(variant, where, {"supersedes", "requires", "files", "links"})
+    _fields(variant, where, {"name", "supersedes", "requires", "files", "links"})
+    _string(variant["name"], "%s.name" % where, VARIANT_NAME)
+    if len(variant["name"]) > MAX_VARIANT_NAME:
+        raise Invalid("%s.name: longer than %d characters" % (where, MAX_VARIANT_NAME))
     _requirements(variant["requires"], "%s.requires" % where)
     m = VARIANT_ID.fullmatch(variant_id)
     if m.group(1) != variant["requires"]["os"] or m.group(2) != variant["requires"]["arch"]:

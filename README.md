@@ -636,16 +636,18 @@ from before 2026-11-01); a build number not higher than the tree's Latest, or wi
 a bundle with anything the format can't express (a mode other than 0644 and 0755, hard
 links, special files, empty directories, files outside the bundle directory).
 
-| Platform | Variant ID |
-|----------|------------|
-| lin64 | `linux-x86_64-qt5` |
-| lin32 | `linux-x86-qt5` |
-| win32 | `windows-x86-qt5.6` |
-| win32-5.15.2 | `windows-x86-qt5.15` |
-| osx64-5.15.2 | `macos-x86_64-qt5.15` |
+| Platform | Variant ID | Name | Supersedes |
+|----------|------------|------|------------|
+| lin64 | `linux-x86_64-qt5` | Linux, 64-bit | |
+| lin32 | `linux-x86-qt5` | Linux, 32-bit | |
+| win32 | `windows-x86-qt5.6` | Windows, Qt 5.6 (for Windows XP and Vista) | |
+| win32-5.15.2 | `windows-x86-qt5.15` | Windows, Qt 5.15 | `windows-x86-qt5.6` |
+| osx64-5.15.2 | `macos-x86_64-qt5.15` | macOS, Qt 5.15 | |
 
-The variant IDs are in `lib/common.py` (`PLATFORMS`); a Launcher build has its own compiled
-in and matches it as a whole string. No variant supersedes another yet.
+The variants are in `lib/common.py` (`PLATFORMS`); a Launcher build has its own ID compiled
+in and matches it as a whole string. The name is what users see when they choose between
+variants. `supersedes` moves Launchers on Windows 7 and newer to Qt 5.15, unless their users
+choose to stay (Design/Updater.md, System requirements).
 
 It also writes the download archives of the tags that moved (Latest; on a new tree all
 three, and Stable's archive), see Tag operations below.
@@ -1101,7 +1103,7 @@ with fixed tool versions, ...) come later.
 
 Since 2026-10-30 (before that, hopper's own daemon), Laminar's job `<stream>-<setup>` releases
 a stream with `config/<setup>.env`: `launcher-production` and `launcher-files2` for each new commit of
-the Launcher repo's `develop` (files2: its `LAUNCHER_BRANCH`, `theming` while that is tested), `translations-production` and `translations-files2` for each new commit
+the Launcher repo's `develop` (files2: its `LAUNCHER_BRANCH`, `updater` for the updater work), `translations-production` and `translations-files2` for each new commit
 of the Translations repo's `master`, `website-production` for each new commit of the Website
 repo's `master` (it replaced the build-only `website` job, whose runs stay in Laminar's
 history), `patrons-production` every day at noon. Their `.run` are links to one script,
