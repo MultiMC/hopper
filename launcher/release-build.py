@@ -4,10 +4,13 @@
     launcher/release-build.py [--config FILE] [--incremental [--clean]] [--build-number N] [--out DIR] [commit]
 
 --config      settings file overriding defaults.env (environment overrides both)
---incremental reuse a persistent source checkout and per-platform build trees in
-              $STATE/work (for development). The checkout is updated with git, so only
-              changed files get new timestamps; CMake configure runs every time.
---clean       with --incremental: start the persistent build trees from scratch
+--incremental reuse a persistent source checkout and per-platform build trees in WORK_DIR
+              (one per setup). The checkout is updated with git, so only changed files get
+              new timestamps; CMake configure runs every time. A platform's tree starts
+              from scratch when its toolchain image, the build steps (launcher/steps/) or
+              the branch differ from the ones it was last built with (build-key.json in
+              it), or when it has no record of them.
+--clean       with --incremental: start the persistent build trees from scratch anyway
 --build-number
               use N instead of the next number from the build counter (BUILD_COUNTER),
               which is then left alone; for test builds
@@ -91,8 +94,8 @@ def main():
         prepared.mkdir(parents=True, exist_ok=True)
 
         if args.incremental:
-            work = common.STATE / "work"
-            work.mkdir(exist_ok=True)
+            work = Path(settings["WORK_DIR"])
+            work.mkdir(parents=True, exist_ok=True)
             src = work / "src"
             settings["CLEAN"] = "1" if args.clean else "0"
         else:
@@ -122,12 +125,12 @@ def main():
         # The only thing on standard output (logging goes to standard error), so callers
         # can use it: files/deploy.py "$(launcher/release-build.py)"
         print(out, flush=True)
-        build_root = common.STATE / "work" / "build" if args.incremental else out / "build"
+        build_root = Path(settings["WORK_DIR"]) / "build" if args.incremental else out / "build"
 
-        build(settings, platforms, src, build_root, out, build_number)
+        modes = build(settings, platforms, branch, src, build_root, out, build_number)
         package(platforms, branch, build_root, out)
         passed = gate(settings, platforms, src, build_root, out)
-        write_manifest(settings, platforms, branch, commit, build_number, args.incremental,
+        write_manifest(settings, platforms, branch, commit, build_number, args.incremental, modes,
                        src, build_root, out, passed)
 
     if not all(passed.values()):
@@ -187,17 +190,53 @@ def checkout(branch, commit, src):
     common.run(*git, "submodule", "-q", "foreach", "--recursive", "git clean -q -ffdx")
 
 
-def build(settings, platforms, src, build_root, out, build_number):
-    """Build every platform in parallel, each logging to build-<platform>.log."""
-    log("building %s (CLEAN=%s)" % (" ".join(p.name for p in platforms), settings["CLEAN"]))
+# In a platform's build tree: what it was last built with (build_key)
+BUILD_KEY_FILE = "build-key.json"
+
+
+def build_key(settings, p, branch):
+    """What a build tree has to have been built with to be reused: the toolchain image (the
+    CMake cache remembers its paths), the build steps and the branch."""
+    return {"image": common.image_id(settings, settings[p.image_setting]), "steps": common.build_steps_hash(),
+            "branch": branch}
+
+
+def clean_reason(settings, p, branch, tree):
+    """Why the platform's build tree must start from scratch, or None to build incrementally."""
+    if settings["CLEAN"] == "1":
+        return "a clean build"
+    try:
+        previous = json.loads((tree / BUILD_KEY_FILE).read_text())
+    except (OSError, ValueError):
+        return "no record of what it was built with"
+    changed = [what for what, value in build_key(settings, p, branch).items() if previous.get(what) != value]
+    if changed:
+        return "%s changed" % ", ".join(changed)
+    return None
+
+
+def build(settings, platforms, branch, src, build_root, out, build_number):
+    """Build every platform in parallel, each logging to build-<platform>.log. Each one is
+    clean or incremental on its own (clean_reason)."""
     running = {}
     failed = []
     with ExitStack() as locks:
+        modes = {}
         for p in platforms:
-            (build_root / p.name).mkdir(parents=True, exist_ok=True)
-            locks.enter_context(common.lock_build_output(build_root / p.name))
-            common.prepare_build_output(settings, build_root / p.name)
-            command = common.build_command(settings, p, src, build_root / p.name, build_number)
+            tree = build_root / p.name
+            tree.mkdir(parents=True, exist_ok=True)
+            locks.enter_context(common.lock_build_output(tree))
+            reason = clean_reason(settings, p, branch, tree)
+            modes[p.name] = "clean (%s)" % reason if reason else "incremental"
+            # recorded before the build: a failed one leaves a tree made with these anyway
+            (tree / BUILD_KEY_FILE).write_text(json.dumps(build_key(settings, p, branch), indent=2, sort_keys=True) + "\n")
+        log("building %s" % "; ".join("%s %s" % (name, mode) for name, mode in modes.items()))
+        for p in platforms:
+            tree = build_root / p.name
+            platform_settings = common.Settings({**settings, "CLEAN": "0" if modes[p.name] == "incremental" else "1"},
+                                                settings.defaults)
+            common.prepare_build_output(platform_settings, tree)
+            command = common.build_command(platform_settings, p, src, tree, build_number)
             with open(out / ("build-%s.log" % p.name), "w") as logfile:
                 running[p.name] = subprocess.Popen(command, stdout=logfile, stderr=subprocess.STDOUT)
 
@@ -214,6 +253,7 @@ def build(settings, platforms, src, build_root, out, build_number):
             raise
     if failed:
         common.die("build failed: %s" % " ".join(failed))
+    return modes
 
 
 def package(platforms, branch, build_root, out):
@@ -283,13 +323,15 @@ def version_name(src):
     return ".".join(m.group(1) for m in parts)
 
 
-def write_manifest(settings, platforms, branch, commit, build_number, incremental, src, build_root, out, passed):
+def write_manifest(settings, platforms, branch, commit, build_number, incremental, build_modes, src, build_root, out, passed):
     manifest = {
         "commit": commit,
         "branch": branch,
         "build_number": build_number,
         "version_name": version_name(src),
         "mode": "incremental" if incremental else "clean",
+        # per platform: "incremental", or "clean (<why>)"
+        "builds": build_modes,
         "updater_base": settings["UPDATER_BASE"],
         "updater": {"version": int(settings["UPDATER_VERSION"]), "root_keys": settings["UPDATER_ROOT_KEYS"].split()},
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -305,6 +347,9 @@ def write_manifest(settings, platforms, branch, commit, build_number, incrementa
             "size": len(data),
             "install_tree": str(build_root / p.name / "install"),
             "deploy_archive": "deploy/%s.tar.gz" % p.name,
+            # what it was built with: a clean rebuild to compare with needs the same
+            # (launcher/verify-build.py)
+            "build_key": build_key(settings, p, branch),
             "compat_passed": gate_result["passed"],
             "compat_problems": gate_result["problems"],
             # What a machine needs to run it, measured by the gate (the updater's `requires`),

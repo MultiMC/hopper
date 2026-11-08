@@ -3,7 +3,7 @@
 # <stream>-<setup>, e.g. translations-files2 is the translations with config/files2.env.
 # Each such job's .run is a link to this file. It runs hopper's scripts, in this order:
 #
-#   launcher      launcher/release-build.py [$COMMIT], files/deploy.py, files/publish.py,
+#   launcher      launcher/release-build.py --incremental [$COMMIT], files/deploy.py, files/publish.py,
 #                 then updater/deploy.py (the new updater's tree, for setups that have one),
 #                 updater/prune.py (its size cap) and files/publish.py again
 #   translations  translations/build.py [$COMMIT], files/deploy.py, files/publish.py
@@ -35,7 +35,8 @@ cd "$(dirname "$(realpath "$0")")/../../.."
 [[ -f $config ]] || { echo "no settings file $config for job $JOB" >&2; exit 1; }
 
 case $stream in
-    launcher)     build=(launcher/release-build.py --config "$config" ${COMMIT:+"$COMMIT"}) ;;
+    # incremental in the setup's WORK_DIR; launcher/verify-build.py checks it against clean builds
+    launcher)     build=(launcher/release-build.py --config "$config" --incremental ${COMMIT:+"$COMMIT"}) ;;
     translations) build=(translations/build.py --config "$config" ${COMMIT:+"$COMMIT"}) ;;
     website)      build=(website/build.py --config "$config" ${COMMIT:+"$COMMIT"}) ;;
     patrons)      build=(patrons/update.py --config "$config") ;;

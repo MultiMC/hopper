@@ -1,0 +1,17 @@
+#!/bin/bash -eu
+# Checks a setup's newest incremental Launcher release against a clean build of the same
+# commit: launcher/verify-build.py. Publishes nothing and uses up no build number. The job's
+# name says the setup: verify-<setup>. Each such job's .run is a link to this file. The result
+# is in the release directory (verify.json, verify.txt), and a copy in $ARCHIVE.
+#
+#     laminarc queue verify-<setup>
+
+config=config/${JOB##*-}.env
+# Waits for a release build to finish instead of stopping (nothing retries a Laminar job)
+export HOPPER_LOCK_WAIT=3600
+
+# This file is in the hopper checkout's laminar/cfg/scripts (~/laminar/cfg is a link to it)
+cd "$(dirname "$(realpath "$0")")/../../.."
+[[ -f $config ]] || { echo "no settings file $config for job $JOB" >&2; exit 1; }
+
+launcher/verify-build.py --config "$config" --archive "$ARCHIVE"

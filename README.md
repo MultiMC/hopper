@@ -18,7 +18,7 @@ directory down and is run from the top of the checkout, e.g.
 |-----------|------|
 | `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing, as JSON, for `web/`; `builds.py` lists a setup's builds, and checks and queues moving tags, withdrawing and pruning; `runs.py` cancels queued runs |
 | `web/` | The view of all this in the browser, with Laminar's logs, the actions on builds, and `/api/overview`: `hopper-web`, in Go with only its standard library |
-| `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh` for both Windows platforms, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE |
+| `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh` for both Windows platforms, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `verify-build.py` checks an incremental release against a clean build of the same commit, with `compare-releases.py`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
@@ -228,8 +228,11 @@ elsewhere; DIR must be new or empty.
    the bundle with its permissions, for `files/deploy.py`.
 4. Runs `launcher/compat-check.py` for each platform against its description (`GATE_DESCRIPTIONS`).
 5. Writes `manifest.json`: commit, build number, version name (`major.minor.hotfix` from
-   the Launcher's `CMakeLists.txt`), mode, `UPDATER_BASE`, package hashes, gate results,
-   `releasable`; and per platform what a machine needs to run it, as the gate measured it:
+   the Launcher's `CMakeLists.txt`), mode (`clean` or `incremental`) and per platform
+   whether its tree was reused (`builds`: `incremental`, or `clean (<why>)`) and what it was
+   built with (`build_key`: toolchain image, build steps, branch), `UPDATER_BASE`, package
+   hashes, gate results, `releasable`; and per platform what a machine needs to run it, as
+   the gate measured it:
    `requires` (the updater's requirements, below) and `measured` (the gate's measurements:
    system libraries or DLLs, symbol versions, PE versions, minimum macOS).
 
@@ -291,8 +294,9 @@ timestamps and the win32 linker bytes, see below).
 
 ### Incremental builds (`--incremental`)
 
-For development. The source checkout and one build tree per platform persist in
-`$STATE/work/` (locked like every release build):
+The release jobs build this way since 2026-11-09. The source checkout and one build tree per
+platform persist in the setup's `WORK_DIR` (`$STATE/work`, files2: `$STATE/work-files2`;
+locked like every release build):
 
 - the checkout is updated with git (`checkout -B`, `reset --hard`, `clean -ffdx`, same for
   submodules), so only files that actually changed get new timestamps;
@@ -301,9 +305,20 @@ For development. The source checkout and one build tree per platform persist in
   are always picked up; install trees and packages are always made fresh;
 - the Windows Wine prefix is kept too.
 
-`--clean` starts the persistent trees from scratch; use it after a toolchain image changes,
-since the CMake caches remember the old one's paths. Without `--incremental` every build is
-clean (fresh checkout and build trees in the output directory), as for releases.
+A platform's tree starts from scratch by itself when what it was built with changed: its
+toolchain image (the image's ID, so a name moved to a new image counts; the CMake caches
+remember an image's paths), the build steps (`launcher/steps/`) or the branch (the user's
+call: what a git trigger builds can differ too much between branches). That's recorded in
+the tree's `build-key.json` before each build; a tree without one starts from scratch too.
+The log says which way each platform went and why (`building lin64 incremental; win32
+clean (image changed)`), and so does the manifest. `--clean` starts them from scratch
+anyway. Without `--incremental` every build is clean (fresh checkout and build trees in the
+output directory).
+
+An incremental build only rebuilds what changed, so a library whose source didn't change
+keeps its bytes, and the updaters don't ship it again. Checked 2026-11-09 (lin64 and win32,
+`32b00db9` then `16a99558`): the incremental build took 45 s instead of 2 min, and between
+the two releases only the main binary (`MultiMC`, `MultiMC.exe`) differed.
 
 Verified 2026-10-21: an incremental build of 2a684511 on top of a305dab9 (one changed file;
 34 s instead of ~2 min) gave the same binaries on all four platforms as a clean build of
@@ -317,6 +332,34 @@ writes a few bytes that look like leftover memory into some tables, and those ch
 the container's environment does. When the scripts moved from bash to Python (2026-10-23),
 `MultiMC.exe` and `libLauncher_iconfix.dll` changed in 4 bytes each, with all 392 object
 files identical.
+
+### Checking incremental releases (`launcher/verify-build.py`)
+
+    launcher/verify-build.py [--config FILE] [--archive DIR] [release dir]
+    launcher/compare-releases.py [--json FILE] <release dir> <other release dir>
+
+`verify-build.py` rebuilds an incremental release's commit from scratch and compares the
+two. It publishes nothing and uses up no build number: `release-build.py --build-number
+<the release's> --out RELEASES_DIR/.verify`, on the release's branch. Without a release
+directory it takes the newest one in `RELEASES_DIR` that reused a build tree, is releasable
+and hasn't been checked; with none, it says so. The result goes into the release directory,
+`verify.json` and `verify.txt` (and to `--archive`). When the builds match, the clean one is
+removed; when they don't, it stays in `RELEASES_DIR/.verify` until the next check, and the
+exit status is 1. A release built with other toolchain images or build steps than today's
+can't be rebuilt the same way: it's marked as not comparable (exit status 0).
+
+`compare-releases.py` compares two releases of the same commit and build number, platform by
+platform, from their `deploy/<platform>.tar.gz`: the same files, links and permissions, the
+same content. Two differences the toolchains are known to make are accepted and listed:
+jars (the same entries and content, only the zip timestamps differ) and `.a`/`.dll.a`
+libraries (the same members, only the ar headers differ). Anything else is a difference.
+
+Laminar's jobs `verify-production` (03:00) and `verify-files2` (04:00) run it every night, in
+their setup's context, so never next to a release build of the setup.
+
+Checked 2026-11-09: build 9002 of `16a99558`, incremental on top of `32b00db9`, against a
+clean build: the same on lin64 (8 files identical, the 2 jars with known differences) and
+win32 (32 identical, the 2 jars and `libLauncher_nbt++.dll.a` with known differences).
 
 ## Compatibility gate (`launcher/compat-check.py`)
 
@@ -1052,6 +1095,8 @@ watches the directory it found when it started. Its jobs so far:
   no production Launcher releases until the Launcher's sites (`FILES_MIRRORS`) are verified
   on files2.
 - `template-production`: the translations template (below).
+- `verify-production`, `verify-files2`: every night, check the newest incremental Launcher
+  release against a clean build of its commit (see "Checking incremental releases").
 
 ### Its binaries (`laminar/build.sh`)
 
@@ -1109,7 +1154,8 @@ repo's `master` (it replaced the build-only `website` job, whose runs stay in La
 history), `patrons-production` every day at noon. Their `.run` are links to one script,
 `cfg/scripts/release`, which runs the same scripts the daemon ran, in the same order:
 
-- launcher: `launcher/release-build.py`, `files/deploy.py`, `files/publish.py`; then
+- launcher: `launcher/release-build.py --incremental` (since 2026-11-09, in the setup's
+  `WORK_DIR`), `files/deploy.py`, `files/publish.py`; then
   `updater/deploy.py --if-configured` and `files/publish.py` again, so the new updater's tree
   only goes out after the current layout is live, and a failure there fails the job without
   holding back the current layout (production has no tree yet and skips it, saying so)

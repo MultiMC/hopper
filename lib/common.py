@@ -2,6 +2,7 @@
 
 import datetime
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -276,6 +277,13 @@ def image_exists(settings, image):
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 
+def image_id(settings, image):
+    """The ID of the image a name points at now: it changes when the name is moved to
+    another image."""
+    return subprocess.run([settings["CONTAINER_ENGINE"], "image", "inspect", "--format", "{{.Id}}", image],
+                          check=True, capture_output=True, text=True).stdout.strip()
+
+
 def user():
     return "%d:%d" % (os.getuid(), os.getgid())
 
@@ -415,6 +423,16 @@ def next_build_number(settings):
         os.fsync(f.fileno())
     os.replace(new, counter)
     return number
+
+
+def build_steps_hash():
+    """SHA-256 over the build steps (launcher/steps/: every file's path and content)."""
+    steps = HOPPER / "launcher" / "steps"
+    digest = hashlib.sha256()
+    for path in sorted(p for p in steps.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
+        digest.update(str(path.relative_to(steps)).encode() + b"\0")
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
 
 
 def build_command(settings, plat, src, out, build_number):
