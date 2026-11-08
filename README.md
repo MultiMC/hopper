@@ -1101,7 +1101,7 @@ with fixed tool versions, ...) come later.
 
 Since 2026-10-30 (before that, hopper's own daemon), Laminar's job `<stream>-<setup>` releases
 a stream with `config/<setup>.env`: `launcher-production` and `launcher-files2` for each new commit of
-the Launcher repo's `develop`, `translations-production` and `translations-files2` for each new commit
+the Launcher repo's `develop` (files2: its `LAUNCHER_BRANCH`, `theming` while that is tested), `translations-production` and `translations-files2` for each new commit
 of the Translations repo's `master`, `website-production` for each new commit of the Website
 repo's `master` (it replaced the build-only `website` job, whose runs stay in Laminar's
 history), `patrons-production` every day at noon. Their `.run` are links to one script,
