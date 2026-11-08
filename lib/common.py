@@ -787,6 +787,10 @@ def rclone(settings, *args, mount=None, **kwargs):
         "--stats-one-line", "--stats", "0", "-v", *args, **kwargs)
 
 
+# Seconds to wait before each new try of a batch Cloudflare refused for its rate limit
+PURGE_RATE_LIMIT_WAITS = (30, 60, 60, 120, 120, 300)
+
+
 def purge_cache(settings, urls, dry_run, on_failure):
     """Evict these URLs from Cloudflare's cache (zone CLOUDFLARE_ZONE_ID). Purge by URL takes
     up to 100 URLs per request on the Free plan. `on_failure` is added to the error."""
@@ -800,17 +804,30 @@ def purge_cache(settings, urls, dry_run, on_failure):
     token = Path(settings["CLOUDFLARE_TOKEN"]).read_text().strip()
     endpoint = "https://api.cloudflare.com/client/v4/zones/%s/purge_cache" % settings["CLOUDFLARE_ZONE_ID"]
     for start in range(0, len(urls), 100):
-        request = urllib.request.Request(endpoint, method="POST",
-                                         data=json.dumps({"files": urls[start:start + 100]}).encode(),
-                                         headers={"Authorization": "Bearer " + token,
-                                                  "Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                result = json.load(response)
-        except urllib.error.HTTPError as e:
-            result = {"success": False, "errors": e.read().decode(errors="replace")}
-        except urllib.error.URLError as e:
-            result = {"success": False, "errors": str(e.reason)}
+        # Cloudflare limits how fast URLs are purged: a batch it refuses for that (error 1134)
+        # is sent again after a wait, so a large purge gets through, only slower
+        for wait in PURGE_RATE_LIMIT_WAITS + (None,):
+            request = urllib.request.Request(endpoint, method="POST",
+                                             data=json.dumps({"files": urls[start:start + 100]}).encode(),
+                                             headers={"Authorization": "Bearer " + token,
+                                                      "Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    result = json.load(response)
+            except urllib.error.HTTPError as e:
+                body = e.read().decode(errors="replace")
+                try:
+                    result = json.loads(body)
+                except ValueError:
+                    result = {"success": False, "errors": body}
+            except urllib.error.URLError as e:
+                result = {"success": False, "errors": str(e.reason)}
+            limited = any(isinstance(error, dict) and error.get("code") == 1134 for error in result.get("errors") or [])
+            if result.get("success") or not limited or wait is None:
+                break
+            print("Cloudflare's purge rate limit: URLs %d to %d again in %d s" % (start + 1, min(start + 100, len(urls)), wait),
+                  file=sys.stderr, flush=True)
+            time.sleep(wait)
         if not result.get("success"):
             die("the purge failed (%s): %s" % (on_failure, result.get("errors")))
 
