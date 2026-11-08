@@ -16,7 +16,9 @@ Launcher builds: does what TeamCity's deploy steps did on the files server, with
     repoman -c update push <platform> <branch> <build> <version> <bundle>/
     repoman push-file downloads <package>
 
-which adds update/<platform>/<branch>/<build>.json, adds it to the channel's index.json,
+which adds update/<platform>/<branch>/<build>.json, adds it to the channel's index.json (a new
+channel, the first build of a branch, is added to the platform's channels.json; its
+directory is made here first, as repoman doesn't),
 copies files the store doesn't have yet into files/<md5>-<name>, and replaces the download
 package. Refuses a build made for another tree (its UPDATER_BASE must be the tree's
 update/config.json base_url), one built with another updater or other pinned root keys
@@ -95,6 +97,8 @@ def deploy_launcher(settings, release, manifest, root):
                 with tarfile.open(release / "deploy" / ("%s.tar.gz" % p.name)) as tar:
                     tar.extractall(bundle_dir, filter="data")
                 package = p.package(branch)
+                # repoman adds a new channel to channels.json, but doesn't make its directory
+                (root / "update" / p.name / branch).mkdir(exist_ok=True)
                 log("%s: pushing version %d to %s, then %s to downloads/" % (p.name, build, branch, package))
                 repoman = common.container_run(settings) + ["--network", "none",
                            "-v", "%s:/deploy/files" % root, "-v", "%s:/bundle:ro" % bundle_dir,
