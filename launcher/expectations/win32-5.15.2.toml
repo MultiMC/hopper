@@ -24,7 +24,7 @@ list = [
     "jars/NewLaunch.jar",
     "libLauncher_iconfix.dll",
     "libLauncher_nbt++.dll",
-    "libLauncher_nbt++.dll.a",
+    # no libLauncher_nbt++.dll.a: the import library isn't installed since Launcher d0c14302 (2026-11-09)
     "libLauncher_quazip.dll",
     "libcrypto-1_1.dll",
     "libgcc_s_dw2-1.dll",
