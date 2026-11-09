@@ -64,6 +64,13 @@ if [ -f /out/updater-keys-floor.json ]; then UPDATER_FLOOR='O:\updater-keys-floo
 # otherwise. The toolchain's DLLs keep theirs.
 PE_VERSION="-Wl,--major-os-version,${WINDOWS_VERSION[0]},--minor-os-version,${WINDOWS_VERSION[1]}"
 PE_VERSION+=",--major-subsystem-version,${WINDOWS_VERSION[0]},--minor-subsystem-version,${WINDOWS_VERSION[1]}"
+# MinGW 8.1's ld puts the link time into the PE header and the export directory; MinGW
+# 4.9.2's doesn't (and doesn't know the option).
+if [ "$PLATFORM" = win32-5.15.2 ]; then PE_VERSION+=",--no-insert-timestamp"; fi
+
+# Qt 5.15's rcc embeds file modification times in resources (Qt 5.6's doesn't). A fixed
+# value (1980-01-01, the zip epoch) makes clean and incremental builds agree, as in osx64.sh.
+export SOURCE_DATE_EPOCH=315532800
 
 cd /out/build
 $WINE "$CMAKE" -G "MinGW Makefiles" \
