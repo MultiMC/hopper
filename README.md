@@ -798,7 +798,11 @@ in and out. The checks are the validator's (`lib/updater_formats.py`).
   the version is the number in the file name; with `--previous` it must be the next one.
 - `sign.py` checks a document and adds a line per key to its `.sig`. The root keys sign one
   at a time, where each one is kept: carry the document and its `.sig` between them. It
-  refuses to add to a `.sig` whose lines no longer verify.
+  refuses to add to a `.sig` whose lines no longer verify. A key can also be on a YubiKey,
+  given as `yubikey:9c` (its PIV slot), or `yubikey:<serial>:9c` with several plugged in;
+  the PIN is asked for when it signs, and a wrong one stops it (`lib/yubikey.py`, through
+  ykman's Python library, not openssl). Tested 2026-11-10 on a YubiKey 5 NFC, firmware
+  5.7.4, with a throwaway key.
 - `verify.py keys` walks keys documents as a Launcher does: from the pinned root keys
   (`--roots`, version 1 must list exactly those) or a known document (`--known`), each next
   version signed by the root keys of the one before, never a lower or repeated version, the
@@ -849,10 +853,10 @@ in this repo.
 **Before**
 
 - The offline machine: a live USB booted with networking off (no cable, Wi-Fi off; `ip
-  link` shows nothing up but `lo`). Only `make-key` and `sign` touch private keys, and both
-  are plain `openssl` underneath, so the offline machine needs `openssl`, `xxd` and `age`.
-  Running the scripts there as well needs Python 3.12+ (Tails, for example, has 3.11):
-  check the live image beforehand, with throwaway keys.
+  link` shows nothing up but `lo`). Only making the root keys, putting them on the
+  YubiKeys and the paper copies touch private keys there: `openssl`, `xxd`, `ykman` and
+  pcscd (and `age` for a stick copy). Running the scripts there as well needs Python 3.12+
+  (Tails, for example, has 3.11): check the live image beforehand, with throwaway keys.
 - On a stick: a copy of this checkout at a known commit (for the scripts, if they run
   there), and `online1.pub` (next step).
 - The online key, on the build server as hopper, like files2's: only its public key leaves
@@ -861,7 +865,10 @@ in this repo.
       mkdir -m 700 ~/keys/production && cd ~/keys/production
       ~/hopper/keys/make-key.py online1
 
-- Two sticks for the encrypted root keys, one per root key, and paper.
+- Two YubiKeys (5 series, firmware 5.7 or newer, which `ykman info` shows), one per root
+  key, and paper. The YubiKey holds the root key for signing; the paper is its backup. An
+  `age`-encrypted copy on a stick is optional now. The offline machine then also needs
+  `ykman` (yubikey-manager) and pcscd.
 
 **Offline, for each of root1 and root2**
 
@@ -881,20 +888,36 @@ the key, and check it gives the same public key (the restore steps go on the pap
         | openssl pkey -inform DER -out restored.pem
     openssl pkey -in restored.pem -pubout -outform DER | tail -c 32 | xxd -p -c 32   # = root1.pub
 
-Also decrypt the `age` file from the stick once, and compare. (Checked 2026-11-09 with a
-throwaway key: the line restores the same key, which signs, and its public key matches.)
+If there is an `age` copy, decrypt it from the stick once, and compare. (Checked 2026-11-09
+with a throwaway key: the line restores the same key, which signs, and its public key
+matches.)
+
+**Onto its YubiKey**: reset PIV, set a new PIN, PUK and management key, import the key into
+the signature slot, and check it's the same key:
+
+    ykman piv reset
+    ykman piv access change-pin
+    ykman piv access change-puk
+    ykman piv access change-management-key --generate --protect
+    ykman piv keys import 9c root1.pem
+    ykman piv keys info 9c                      # Algorithm ED25519, Origin IMPORTED
+    ykman piv keys export 9c - | openssl pkey -pubin -outform DER | tail -c 32 | xxd -p -c 32   # = root1.pub
+
+A key can't be read back out of the slot; only the paper (or the `age` copy) can restore it
+onto a new YubiKey.
 
 **The first keys document** (offline, or online with the public keys only), signed by both
 root keys:
 
     keys/write-keys.py keys/1.json --expires <about two years ahead> \
         --root root1.pub --root root2.pub --online online1.pub
-    keys/sign.py keys/1.json root1.pem
-    keys/sign.py keys/1.json root2.pem
+    keys/sign.py keys/1.json yubikey:9c         # root1's YubiKey plugged in
+    keys/sign.py keys/1.json yubikey:9c         # then root2's
     keys/verify.py keys keys/1.json --roots root1.pub root2.pub
 
 Then delete the plaintext `.pem` files on the offline machine and shut it down. Only
-`1.json`, `1.json.sig` and the `.pub` files leave it.
+`1.json`, `1.json.sig` and the `.pub` files leave it. Later keys documents are signed with
+the YubiKeys the same way, on any machine: the keys never leave them.
 
 **After**
 
@@ -905,7 +928,7 @@ Then delete the plaintext `.pem` files on the offline machine and shut it down. 
   in production.
 - A table of the public keys here, as for files2.
 - A reminder about 18 months ahead: the next keys document is signed before the expiry,
-  which also checks that both sticks still read and both passphrases are still known.
+  which also checks that both YubiKeys still sign and both PINs are still known.
 
 ## The files2 test system (`config/files2.env`)
 

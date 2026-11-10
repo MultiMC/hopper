@@ -19,6 +19,7 @@ HOPPER = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HOPPER / "lib"))
 
 import updater_formats as formats
+import yubikey
 
 NOW = "2026-11-01T12:00:00Z"
 EXPIRES = "2028-11-01T00:00:00Z"
@@ -196,6 +197,19 @@ class Keys(unittest.TestCase):
         self.fails("expired", "keys/verify.py", "file", tags, "--keys", two, "--now", "2029-01-01T00:00:00Z")
         self.ok("keys/verify.py", "file", one, "--key", self.key("root2"))
         self.fails("use `verify.py keys`", "keys/verify.py", "file", two, "--keys", one)
+
+
+class YubiKeyNames(unittest.TestCase):
+    """How keys/sign.py tells a YubiKey slot from a key file; signing itself needs a device."""
+
+    def test_names(self):
+        self.assertTrue(yubikey.is_key("yubikey:9c"))
+        self.assertFalse(yubikey.is_key("root1.pem"))
+        self.assertEqual(yubikey._parse("yubikey:9c"), (None, 0x9C))
+        self.assertEqual(yubikey._parse("yubikey:36458554:9C"), (36458554, 0x9C))
+        for bad in ("yubikey:", "yubikey:9", "yubikey:zz", "yubikey:x:9c", "yubikey:9c:1"):
+            with self.assertRaises(formats.Invalid, msg=bad):
+                yubikey._parse(bad)
 
 
 if __name__ == "__main__":

@@ -15,10 +15,13 @@ online key. keys/verify.py checks that. Several root keys can sign one at a time
 different places: carry the document and its .sig between them.
 
 The private keys are PEM files as make-key.py writes them; openssl asks for a passphrase if
-one is encrypted. Needs the openssl CLI.
+one is encrypted. Needs the openssl CLI. A private key can also be on a YubiKey, named
+yubikey:<slot> (yubikey:9c), or yubikey:<serial>:<slot> when several are plugged in (see
+lib/yubikey.py); its PIN is asked for when it signs. That needs ykman's Python library.
 """
 
 import argparse
+import getpass
 import os
 import sys
 from pathlib import Path
@@ -28,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 import common
 import updater_formats as formats
+import yubikey
 
 log = common.logger("sign")
 
@@ -66,11 +70,14 @@ def main():
                                           % (signature_path, key))
         added = 0
         for private in args.keys:
-            key = formats.public_key(private)
+            key = yubikey.public_key(private) if yubikey.is_key(private) else formats.public_key(private)
             if key in (k for k, _ in lines):
                 log("%s has a signature by %s already" % (signature_path, key))
                 continue
-            line = formats.sign(data, private)
+            if yubikey.is_key(private):
+                line = yubikey.sign(data, private, getpass.getpass("PIN for %s: " % private))
+            else:
+                line = formats.sign(data, private)
             ((_, signature),) = formats.parse_signatures(line.encode("ascii"))
             if not formats.verify_one(data, key, signature):
                 raise formats.Invalid("the signature just made with %s doesn't verify" % private)
