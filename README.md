@@ -839,6 +839,74 @@ Checked 2026-11-01: `verify.py keys` accepts it from the two root keys, and refu
 its expiry or online key changed (the signatures no longer verify), at its expiry time, from
 a known version 2 or 1 (not newer), and with another key pinned in place of a root key.
 
+### Production's keys: the ceremony
+
+Not done yet; it comes before the bridge build (`Updater.md`, Before the cutover). Written
+2026-11-09. Still to decide: the paper format (marked below). Where the root keys and the
+passphrases are kept, and who else holds a copy, is decided and recorded privately, never
+in this repo.
+
+**Before**
+
+- The offline machine: a live USB booted with networking off (no cable, Wi-Fi off; `ip
+  link` shows nothing up but `lo`). Only `make-key` and `sign` touch private keys, and both
+  are plain `openssl` underneath, so the offline machine needs `openssl`, `xxd` and `age`.
+  Running the scripts there as well needs Python 3.12+ (Tails, for example, has 3.11):
+  check the live image beforehand, with throwaway keys.
+- On a stick: a copy of this checkout at a known commit (for the scripts, if they run
+  there), and `online1.pub` (next step).
+- The online key, on the build server as hopper, like files2's: only its public key leaves
+  the build server, so no online private key is ever carried on a stick.
+
+      mkdir -m 700 ~/keys/production && cd ~/keys/production
+      ~/hopper/keys/make-key.py online1
+
+- Two sticks for the encrypted root keys, one per root key, and paper.
+
+**Offline, for each of root1 and root2**
+
+    keys/make-key.py root1                      # or: openssl genpkey -algorithm ed25519 -out root1.pem
+    age -p -o root1.pem.age root1.pem           # to its own stick; the passphrase is kept apart from it
+
+The paper copy is the private key's 32 bytes as 64 hex digits, with the first 8 hex digits
+of their SHA-256 as a check (format to decide: this line in plain, or the `age` file):
+
+    openssl pkey -in root1.pem -outform DER | tail -c 32 | xxd -p -c 32
+    openssl pkey -in root1.pem -outform DER | tail -c 32 | sha256sum | cut -c1-8
+
+**Restore test, before trusting the paper**: type the line back in from the paper, rebuild
+the key, and check it gives the same public key (the restore steps go on the paper too):
+
+    printf '302e020100300506032b657004220420%s' <64 hex digits> | xxd -r -p \
+        | openssl pkey -inform DER -out restored.pem
+    openssl pkey -in restored.pem -pubout -outform DER | tail -c 32 | xxd -p -c 32   # = root1.pub
+
+Also decrypt the `age` file from the stick once, and compare. (Checked 2026-11-09 with a
+throwaway key: the line restores the same key, which signs, and its public key matches.)
+
+**The first keys document** (offline, or online with the public keys only), signed by both
+root keys:
+
+    keys/write-keys.py keys/1.json --expires <about two years ahead> \
+        --root root1.pub --root root2.pub --online online1.pub
+    keys/sign.py keys/1.json root1.pem
+    keys/sign.py keys/1.json root2.pem
+    keys/verify.py keys keys/1.json --roots root1.pub root2.pub
+
+Then delete the plaintext `.pem` files on the offline machine and shut it down. Only
+`1.json`, `1.json.sig` and the `.pub` files leave it.
+
+**After**
+
+- `config/keys/production/1.json` and `.sig` into this repo; production's settings get
+  `UPDATER_ROOT=updater`, `UPDATER_KEYS`, `UPDATER_ONLINE_KEY` (the build server's
+  `~/keys/production/online1.pem`) and `UPDATER_ROOT_KEYS` (the two root public keys). The
+  gate then checks that production builds pin exactly those. This turns on the shadow tree
+  in production.
+- A table of the public keys here, as for files2.
+- A reminder about 18 months ahead: the next keys document is signed before the expiry,
+  which also checks that both sticks still read and both passphrases are still known.
+
 ## The files2 test system (`config/files2.env`)
 
 A parallel system set up like production, so the whole path can be exercised without
