@@ -160,6 +160,10 @@ def build_manifest(release, manifest, platforms, work):
             contents.setdefault(sha256, path)
     doc = {"type": "build", "format": formats.FORMAT, "build": manifest["build_number"],
            "commit": manifest["commit"], "built": manifest["built_at"], "variants": variants}
+    # releases built before 2026-11-10 have a version without the build number ("0.7.0"): left out
+    version = formats.BUILD_VERSION.fullmatch(manifest["version_name"])
+    if version and int(version.group(1)) == manifest["build_number"]:
+        doc["version"] = manifest["version_name"]
     return doc, contents
 
 

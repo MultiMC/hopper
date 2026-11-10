@@ -227,8 +227,9 @@ elsewhere; DIR must be new or empty.
    (`.zip` for win32), same layout as the shipped packages; and `deploy/<platform>.tar.gz`,
    the bundle with its permissions, for `files/deploy.py`.
 4. Runs `launcher/compat-check.py` for each platform against its description (`GATE_DESCRIPTIONS`).
-5. Writes `manifest.json`: commit, build number, version name (`major.minor.hotfix` from
-   the Launcher's `CMakeLists.txt`), mode (`clean` or `incremental`) and per platform
+5. Writes `manifest.json`: commit, build number, version name (`major.minor.build`: major
+   and minor from the Launcher's `CMakeLists.txt`; build numbers above 65535 are refused),
+   mode (`clean` or `incremental`) and per platform
    whether its tree was reused (`builds`: `incremental`, or `clean (<why>)`) and what it was
    built with (`build_key`: toolchain image, build steps, branch), `UPDATER_BASE`, package
    hashes, gate results, `releasable`; and per platform what a machine needs to run it, as

@@ -393,6 +393,16 @@ class TestDocuments(unittest.TestCase):
         self.build["variants"]["linux-x86_64-qt5"]["files"][0]["mode"] = 493
         self.assertInvalid("unknown mode", self.build)
 
+    def test_version(self):
+        # optional: builds from before 2026-11-10 have none
+        self.build["version"] = "0.7.4312"
+        self.check(self.build)
+        for wrong in ("0.7.0", "0.7.4311", "0.7", "0.7.4312.0", "v0.7.4312", "0.07.4312"):
+            self.build["version"] = wrong
+            self.assertInvalid("version", self.build)
+        self.build["version"] = 4312
+        self.assertInvalid("version: not a string", self.build)
+
     def test_unknown_top_field(self):
         self.build["channel"] = "develop"
         self.assertInvalid("unknown channel", self.build)

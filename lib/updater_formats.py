@@ -33,6 +33,8 @@ HEX64 = re.compile(r"[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 TIME = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 VERSION = re.compile(r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*")
+# a build's version: major.minor.build (Updater.md, Versions)
+BUILD_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.([1-9][0-9]*)")
 VARIANT_ID = re.compile(r"(windows|macos|linux)-(x86_64|x86|arm64)-[a-z0-9.]+(-[a-z0-9.]+)*")
 # Printable ASCII, not starting or ending with a space
 VARIANT_NAME = re.compile(r"[\x21-\x7e]([\x20-\x7e]*[\x21-\x7e])?")
@@ -359,10 +361,15 @@ def _check_variant(variant_id, variant, where):
 
 
 def check_build(doc, build=None):
-    _header(doc, "build", {"build", "commit", "built", "variants"})
+    # version: optional, builds published before 2026-11-10 have none
+    _header(doc, "build", {"build", "commit", "built", "variants"} | ({"version"} & doc.keys()))
     _integer(doc["build"], "build", 1)
     if build is not None and doc["build"] != build:
         raise Invalid("build is %d, but the file is for build %d" % (doc["build"], build))
+    if "version" in doc:
+        match = BUILD_VERSION.fullmatch(_string(doc["version"], "version"))
+        if not match or int(match.group(1)) != doc["build"]:
+            raise Invalid("version: %r isn't <major>.<minor>.%d" % (doc["version"], doc["build"]))
     _string(doc["commit"], "commit", COMMIT)
     _time(doc["built"], "built")
     variants = doc["variants"]

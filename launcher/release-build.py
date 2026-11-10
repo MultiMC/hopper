@@ -59,6 +59,9 @@ import common
 
 log = common.logger("release")
 
+# Windows version resources hold each part of major.minor.build.0 in 16 bits
+MAX_BUILD_NUMBER = 65535
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -114,6 +117,10 @@ def main():
         else:
             build_number = args.build_number
             log("build number %d (given; the counter is left alone)" % build_number)
+        # the build number is a part of the version in Windows version resources: 16 bits
+        if build_number > MAX_BUILD_NUMBER:
+            common.die("build number %d is above %d, the most a Windows version resource holds"
+                       % (build_number, MAX_BUILD_NUMBER))
 
         out = prepared
         if not args.out:
@@ -314,13 +321,15 @@ def gate(settings, platforms, src, build_root, out):
     return passed
 
 
-def version_name(src):
-    """major.minor.hotfix from the Launcher's CMakeLists.txt (what TeamCity's tcversion printed)."""
+def version_name(src, build_number):
+    """major.minor.build: major and minor from the Launcher's CMakeLists.txt, the build number
+    from the pipeline (the Design repo's Updater.md, Versions). The same as the Launcher puts
+    into its binaries."""
     text = (src / "CMakeLists.txt").read_text()
-    parts = [re.search(r"^set\(Launcher_VERSION_%s\s+(\d+)\)" % part, text, re.M) for part in ("MAJOR", "MINOR", "HOTFIX")]
+    parts = [re.search(r"^set\(Launcher_VERSION_%s\s+(\d+)\)" % part, text, re.M) for part in ("MAJOR", "MINOR")]
     if not all(parts):
         common.die("can't read the version from %s" % (src / "CMakeLists.txt"))
-    return ".".join(m.group(1) for m in parts)
+    return "%s.%s.%d" % (parts[0].group(1), parts[1].group(1), build_number)
 
 
 def write_manifest(settings, platforms, branch, commit, build_number, incremental, build_modes, src, build_root, out, passed):
@@ -328,7 +337,7 @@ def write_manifest(settings, platforms, branch, commit, build_number, incrementa
         "commit": commit,
         "branch": branch,
         "build_number": build_number,
-        "version_name": version_name(src),
+        "version_name": version_name(src, build_number),
         "mode": "incremental" if incremental else "clean",
         # per platform: "incremental", or "clean (<why>)"
         "builds": build_modes,

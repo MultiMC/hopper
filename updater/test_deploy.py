@@ -87,7 +87,7 @@ def make_release(directory, build, linux=None, requires=None, updater_base="http
             tar_add(tar, name, link=target)
     manifest = {
         "branch": "develop", "build_number": build, "built_at": "2026-11-01T20:55:12Z", "commit": COMMIT,
-        "mode": "clean", "releasable": True, "updater_base": updater_base, "version_name": "0.7.0",
+        "mode": "clean", "releasable": True, "updater_base": updater_base, "version_name": "0.7.%d" % build,
         "platforms": {
             "lin64": {"deploy_archive": "deploy/lin64.tar.gz",
                       "requires": requires or {"os": "linux", "arch": "x86_64", "glibc": "2.14", "glibcxx": "3.4.21", "qt": "5.6"}},
@@ -166,6 +166,7 @@ class TestDeploy(unittest.TestCase):
         tags = self.doc("tags.json")
         self.assertEqual((tags["serial"], tags["tags"], tags["withdrawn"]), (1, {"latest": 10, "testing": 10, "stable": 10}, []))
         build = self.doc("builds/10.json")
+        self.assertEqual(build["version"], "0.7.10")
         self.assertEqual(sorted(build["variants"]), ["linux-x86_64-qt5", "macos-x86_64-qt5.15"])
         linux = build["variants"]["linux-x86_64-qt5"]
         self.assertEqual([(f["path"], f["executable"]) for f in linux["files"]],
@@ -177,6 +178,15 @@ class TestDeploy(unittest.TestCase):
         self.assertEqual([p.name for p in (self.dir / "files.snapshots").glob("*") if p.is_dir()][0][16:],
                          "before-updater-10")
         self.assertFalse((self.tree / ".incoming").exists())
+
+    def test_release_without_build_in_version(self):
+        # built before 2026-11-10: its version name is "0.7.0", which isn't this build's version
+        release = make_release(self.dir, 10)
+        manifest = json.loads((release / "manifest.json").read_text())
+        manifest["version_name"] = "0.7.0"
+        (release / "manifest.json").write_text(json.dumps(manifest))
+        self.assertDeploys(release)
+        self.assertNotIn("version", self.doc("builds/10.json"))
 
     def test_next_build(self):
         self.assertDeploys(make_release(self.dir, 10))
