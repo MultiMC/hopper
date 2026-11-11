@@ -1043,11 +1043,15 @@ server as hopper, with `--config config/files2.env` (left out below).
 settings overridden for the build and its deploy (the environment goes over the settings
 file):
 
-    export UPDATER_VERSION=1 UPDATER_ROOT_KEYS=
+    export CONTAINER_ENGINE=podman UPDATER_VERSION=1 UPDATER_ROOT_KEYS=
     launcher/release-build.py
     files/deploy.py $STATE/releases-files2/F
     files/publish.py
     unset UPDATER_VERSION UPDATER_ROOT_KEYS
+
+(`CONTAINER_ENGINE=podman` because the jobs get it from Laminar's unit, and a shell on the
+build server doesn't; it is needed for every script run by hand there that starts a
+container: the build, both deploys, the publish.)
 
 Not `updater/deploy.py`: with the override it would take `F` into the new tree as Latest.
 Without the override it refuses `F`, as it should.
