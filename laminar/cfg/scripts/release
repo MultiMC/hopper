@@ -12,7 +12,8 @@
 #                 promoted by hand: website/publish.py --production)
 #
 # The new updater's tree goes after the current layout is published, so a failure there
-# fails the job but never holds back the current layout. A setup without one (UPDATER_ROOT
+# fails the job but never holds back the current layout. Once the current layout is frozen
+# (CURRENT_LAYOUT_FROZEN_AT, the cutover), Launcher builds go into the new tree only. A setup without one (UPDATER_ROOT
 # empty, production for now) skips it with a log line (--if-configured).
 #
 # then daemon/releases.py cleanup (housekeeping; a failure is only logged). After a
@@ -43,6 +44,9 @@ case $stream in
     *)            echo "no stream $stream (job $JOB)" >&2; exit 1 ;;
 esac
 
+skip_frozen=
+if [[ $stream == launcher ]]; then skip_frozen=--skip-frozen; fi
+
 status=0
 release=$("${build[@]}") || status=$?
 if [[ -n $release ]]; then
@@ -59,7 +63,8 @@ fi
 if [[ $stream == website ]]; then
     website/publish.py --config "$config" "$release"
 else
-    files/deploy.py --config "$config" "$release"
+    # a Launcher build skips a frozen current layout (the cutover; the bridge goes in by hand)
+    files/deploy.py --config "$config" ${skip_frozen:+"$skip_frozen"} "$release"
     files/publish.py --config "$config"
     if [[ $stream == launcher ]]; then
         updater/deploy.py --config "$config" --if-configured "$release"

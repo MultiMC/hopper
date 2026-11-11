@@ -3,7 +3,7 @@
 launcher/release-build.py, translations made by translations/build.py, or the Patreon credits
 made by patrons/update.py.
 
-    files/deploy.py [--config FILE] <release dir>
+    files/deploy.py [--config FILE] [--bridge | --skip-frozen] <release dir>
 
 Before changing the tree it takes a read-only snapshot of it (files/snapshots.py lists and
 restores them; a tree that isn't a btrfs subvolume is refused). Nothing is published here;
@@ -25,6 +25,20 @@ update/config.json base_url), one built with another updater or other pinned roo
 than this setup's (UPDATER_VERSION, UPDATER_ROOT_KEYS), and one whose build number isn't
 higher than every version already in the channel (the updater only offers newer IDs).
 
+The cutover to the new updater: once the current layout is frozen (CURRENT_LAYOUT_FROZEN_AT,
+the last build made with updater 1), Launcher builds are refused here; they go into the new
+updater's tree only (updater/deploy.py), where no Launcher with updater 1 sees them.
+
+--bridge       deploy this build as the bridge: the one build the frozen layout takes, by
+               hand, which moves every Launcher with updater 1 onto the new updater. Only
+               when the layout is still at the build it was frozen at, the release is a build
+               of develop (the channel those Launchers read) with updater 2 and every
+               platform, and the build is Stable in the new updater's tree as published.
+               Test it first: installed from the new tree's downloads, updating to a later
+               build, on every platform. After it, nothing goes into the current layout.
+--skip-frozen  for the release job: a Launcher build for a frozen layout is skipped with a
+               log line, exit 0, instead of refused
+
 Translations: translations/ becomes the release's files, plus the files of languages that
 kept their previous release (still named in the new index); everything else in there is
 removed, so nothing piles up.
@@ -45,15 +59,24 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 import common
+import updater_formats as formats
 
 log = common.logger("deploy")
+
+# The channel every Launcher with updater 1 reads, whatever its own branch or setting
+# (the Launcher's updater/v1/UpdateChecker.cpp)
+BRIDGE_CHANNEL = "develop"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", help="settings file overriding defaults.env")
+    parser.add_argument("--bridge", action="store_true")
+    parser.add_argument("--skip-frozen", action="store_true")
     parser.add_argument("release", type=Path)
     args = parser.parse_args()
+    if args.bridge and args.skip_frozen:
+        common.die("--bridge and --skip-frozen don't go together")
 
     settings = common.load_settings(args.config)
     release = args.release.resolve()
@@ -61,15 +84,41 @@ def main():
     root = Path(settings["FILES_ROOT"])
     if not (root / "update" / "config.json").is_file():
         common.die("no files tree at %s (run files/pull.py)" % root)
+    if "kind" in manifest and args.bridge:
+        common.die("--bridge is for a Launcher build, %s is a %s release" % (release, manifest["kind"]))
     if manifest.get("kind") == "translations":
         deploy_translations(settings, release, manifest, root)
     elif manifest.get("kind") == "patrons":
         deploy_patrons(settings, release, root)
     else:
-        deploy_launcher(settings, release, manifest, root)
+        deploy_launcher(settings, release, manifest, root, args.bridge, args.skip_frozen)
 
 
-def deploy_launcher(settings, release, manifest, root):
+def frozen_at(settings):
+    """The build the current layout is frozen at (CURRENT_LAYOUT_FROZEN_AT), or None."""
+    value = settings["CURRENT_LAYOUT_FROZEN_AT"]
+    if not value:
+        return None
+    if not value.isdigit() or int(value) < 1:
+        common.die("CURRENT_LAYOUT_FROZEN_AT must be a build number, not %r" % value)
+    return int(value)
+
+
+def stable_build(directory, settings):
+    """The new updater tree's Stable build in a files tree (the local one, or a snapshot), or
+    None if it has no tree."""
+    if not settings["UPDATER_ROOT"]:
+        return None
+    tags = Path(directory) / settings["UPDATER_ROOT"] / "tags.json"
+    if not tags.is_file():
+        return None
+    try:
+        return formats.check_document("tags.json", tags.read_bytes())["tags"]["stable"]
+    except formats.Invalid as e:
+        common.die("%s: %s" % (tags, e))
+
+
+def deploy_launcher(settings, release, manifest, root, bridge=False, skip_frozen=False):
     branch, build, version = manifest["branch"], manifest["build_number"], manifest["version_name"]
     platforms = [common.platform(name) for name in manifest["platforms"]]
     log("release %s build %d (%s): %s" % (branch, build, version, " ".join(p.name for p in platforms)))
@@ -79,14 +128,38 @@ def deploy_launcher(settings, release, manifest, root):
         common.die("the release updates from %s, this tree is %s (wrong --config?)"
                    % (manifest.get("updater_base"), tree_base))
     common.check_release_updater(settings, manifest, release)
+    frozen = frozen_at(settings)
+    if frozen is not None and skip_frozen:
+        log("the current layout is frozen at build %d (CURRENT_LAYOUT_FROZEN_AT); build %d isn't deployed to it"
+            % (frozen, build))
+        return
+    if bridge and branch != BRIDGE_CHANNEL:
+        common.die("the bridge must be a build of %s, the only channel Launchers with updater 1 read; this is %s"
+                   % (BRIDGE_CHANNEL, branch))
 
     with common.lock_files(settings):
+        last = {}
         for p in platforms:
             index = root / "update" / p.name / branch / "index.json"
             versions = common.channel_versions(index.read_text()) if index.exists() else []
-            last = max([int(v["Id"]) for v in versions] or [0])
-            if build <= last:
-                common.die("%s/%s already has build %d; %d is not newer" % (p.name, branch, last, build))
+            last[p.name] = max([int(v["Id"]) for v in versions] or [0])
+        updater, stable = common.release_updater(manifest)["version"], stable_build(root, settings)
+        # what is live only matters (and must be on record) once everything local is right
+        live = bridge and frozen is not None and updater == 2 and stable == build
+        refusal = common.frozen_layout_refusal(
+            frozen, build, last, bridge, updater, stable,
+            stable_build(common.published_snapshot(settings), settings) if live else None)
+        if refusal:
+            common.die(refusal)
+        missing = sorted(set(p.name for p in settings.platforms()) - set(last))
+        if bridge and missing:
+            # a platform without the bridge would stay on the frozen build for good
+            common.die("the bridge must have every platform (PLATFORMS); this release lacks %s" % " ".join(missing))
+        if bridge:
+            log("build %d is the bridge: the current layout takes it, and nothing after it" % build)
+        for p in platforms:
+            if build <= last[p.name]:
+                common.die("%s/%s already has build %d; %d is not newer" % (p.name, branch, last[p.name], build))
 
         snapshot = common.snapshot_files(settings, "before-deploy-%d" % build, kind="deploy", about=release.name)
         log("snapshot of the tree as it was: %s" % snapshot.name)

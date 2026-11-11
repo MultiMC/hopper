@@ -484,6 +484,32 @@ network: for each platform `repoman -c update push <platform> <branch> <build> <
 manifest's `UPDATER_BASE` must be the tree's `update/config.json` `base_url`) and one whose
 build number isn't higher than every version already in the channel.
 
+**The freeze and the bridge** (the cutover to the new updater, 2026-11-11; `Updater.md` in the
+Design repo, "The cutover"). Every Launcher with updater 1 takes whatever build the current
+layout has, and from the first build with updater 2 on it runs that updater. So the current
+layout is frozen first, and takes exactly one more build, by hand:
+
+1. `CURRENT_LAYOUT_FROZEN_AT=<build>`, the last build made with updater 1. From then on
+   `files/deploy.py` refuses Launcher builds; the release job passes `--skip-frozen`, which
+   skips the current layout with a log line, and goes on to the new updater's tree.
+   Translations and the Patreon credits are deployed as before.
+2. The setup is switched to updater 2. Its builds are in the new tree only, where no
+   Launcher with updater 1 sees them. Install one from the tree's downloads
+   (`downloads/updater/`) on every platform and update it to a later build: that is the
+   test of a bridge candidate, with the setup's real keys and hosts.
+3. `updater/tag.py stable <build>` and `files/publish.py`, then
+   `files/deploy.py --bridge <release>` and `files/publish.py`. `--bridge` refuses unless
+   the layout is frozen and still at the build it was frozen at on every platform, the
+   release is a build of `develop` (the only channel Launchers with updater 1 read,
+   whatever their branch) with updater 2 and every platform of `PLATFORMS`, and the build
+   is Stable in the new tree, locally and in what is published.
+4. Nothing goes into the current layout after it: a second `--bridge` is refused, and the
+   setting stays as it is.
+
+The rules are `common.frozen_layout_refusal`; `updater/test_deploy.py` tests them and
+`files/deploy.py`'s refusals. Not tested here: a `--bridge` that goes through (it needs
+repoman's image and a published tree); the rehearsal on files2 is that test.
+
 repoman prints `Failed to load channel "main"` for every platform: `channels.json` lists a
 `main` channel that has no directories. Harmless; TeamCity's deploys did the same.
 
@@ -994,6 +1020,90 @@ with files2's test keys (`UPDATER_*` in `config/files2.env`), its mirror list na
 files server first and the bucket second. Laminar's `launcher-files2` adds every new build
 to it. Since 2026-11-04 files2's Launchers are built with the new updater
 (`UPDATER_VERSION=2`), pinned to files2's root keys, so they update from that tree.
+
+### The cutover rehearsal
+
+Written 2026-11-11, not run yet. The cutover (above, "The freeze and the bridge") done
+once on files2, with the same commands and in the same order, before production. It is
+also the only test of a `--bridge` that goes through.
+
+Two things about files2 as it is decide how it starts:
+
+- Launchers with updater 1 read the `develop` channel and nothing else. files2 builds the
+  Launcher's `updater` branch into a channel of that name, which they never see; its
+  `develop` channel stopped at build 5048. So the rehearsal builds `develop`, once the
+  updater work is merged there, as production will.
+- files2's builds have updater 2 already. The rehearsal needs a last build with updater 1
+  to freeze at, made by hand with the setting overridden.
+
+`F`, `B`, `B+1` and `B+2` are build numbers, in that order. Everything runs on the build
+server as hopper, with `--config config/files2.env` (left out below).
+
+**1. The last build with updater 1, `F`.** By hand, not through the job, with the updater
+settings overridden for the build and its deploy (the environment goes over the settings
+file):
+
+    export UPDATER_VERSION=1 UPDATER_ROOT_KEYS= LAUNCHER_BRANCH=develop
+    launcher/release-build.py
+    files/deploy.py $STATE/releases-files2/F
+    files/publish.py
+    unset UPDATER_VERSION UPDATER_ROOT_KEYS LAUNCHER_BRANCH
+
+Not `updater/deploy.py`: with the override it would take `F` into the new tree as Latest.
+Without the override it refuses `F`, as it should.
+
+**2. Installs of `F`,** one per platform, from the current layout's downloads
+(`downloads/mmc-develop-<platform>`): lin64, lin32, win32 on Windows XP, win32 on Windows 7
+or later, win32-5.15.2, osx64-5.15.2. Each says there is no update. These are the
+Launchers the cutover moves.
+
+**3. The freeze.** In `config/files2.env`: `CURRENT_LAYOUT_FROZEN_AT=F` and
+`LAUNCHER_BRANCH=develop` (and in `laminar/cfg/jobs/launcher-files2.conf`, which names
+the branch too).
+
+**4. Builds with updater 2, `B` and `B+1`,** through the job (`launcher-files2`), one after
+the other. Each run's log says the current layout is frozen and the build isn't deployed to
+it, and the build is in the new tree. The installs of `F` still say there is no update:
+the frozen layout hides the new builds.
+
+**5. The candidate, `B`.** Between the two builds of step 4, install `B` on every platform
+from the new tree's downloads (`downloads/updater/mmc-latest-<platform>`), next to the
+installs of `F`, on the Latest tier. After `B+1`: each updates to `B+1`, starts, and then
+says there is no update. That is the test `--bridge` can't make: `B`'s updater works, on
+every platform, against the published tree. The platforms are tested side by side.
+
+**6. `B` becomes Stable, then the bridge.**
+
+    updater/tag.py stable B
+    files/publish.py
+    files/deploy.py --bridge $STATE/releases-files2/B
+    files/publish.py
+
+Before the first publish, `--bridge` must refuse ("isn't published yet"); worth trying.
+The release directory of `B` must still be there (`RELEASES_KEEP`).
+
+**7. The installs of `F` move over.** Each is offered `B` by its old updater, updates and
+starts. Then, in each:
+
+- the setup wizard asks for the tier once, with Stable chosen;
+- a check says there is no update (`B` is Stable), and `updater/state.json` is there;
+- win32 on Windows 7 or later is offered the switch to the Qt 5.15 variant; on Windows XP
+  it isn't.
+
+**8. After the bridge.**
+
+- A third build, `B+2`, through the job: it skips the current layout again, whose channel
+  still ends at `B`.
+- `updater/tag.py stable B+2` and `files/publish.py`: the moved installs update to it
+  with the new updater.
+- `files/deploy.py --bridge` with `B+2` is refused: there is one bridge.
+
+What to keep from it: the job logs of steps 4 and 8, the Launcher logs of one install per
+platform from steps 5 and 7, and anything that didn't go as written here.
+
+files2 stays frozen afterwards, as production will be. To rehearse again, flush its
+current layout and its new tree and start over (a new tree needs
+`updater/deploy.py --new-tree` once, by hand).
 
 Seeded 2026-10-23 (as R2 only) from a copy of the live tree, with `update/config.json` (repoman's URLs)
 and every `update/<platform>/channels.json` pointed at files2. The Launcher takes the channel
