@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -26,6 +27,7 @@ sys.path.insert(0, str(HOPPER / "lib"))
 
 import common
 import updater_formats as formats
+import updater_tree
 
 TEST_DIR = Path(os.environ.get("HOPPER_TEST_DIR") or common.STATE)
 ON_BTRFS = TEST_DIR.is_dir() and subprocess.run(["stat", "-f", "-c", "%T", str(TEST_DIR)], capture_output=True,
@@ -130,20 +132,24 @@ class TestDeploy(unittest.TestCase):
                 subprocess.run(["btrfs", "property", "set", str(snapshot), "ro", "false"], check=True)
         shutil.rmtree(self.dir)
 
-    def deploy(self, release, *options, **settings):
+    def deploy(self, release, *options, new_tree=None, **settings):
+        """Run updater/deploy.py. A tree without a tags document is started (--new-tree),
+        unless new_tree says otherwise."""
         config = self.dir / "test.env"
         config.write_text("".join('%s="%s"\n' % item for item in {**self.settings, **settings}.items()))
+        if new_tree is None:
+            new_tree = not (self.tree / "tags.json").exists()
         return subprocess.run([sys.executable, str(HOPPER / "updater/deploy.py"), "--config", str(config),
-                               *options, str(release)], capture_output=True, text=True)
+                               *(["--new-tree"] if new_tree else []), *options, str(release)], capture_output=True, text=True)
 
     def assertDeploys(self, release, *options, **settings):
         result = self.deploy(release, *options, **settings)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result
 
-    def assertRefused(self, release, text, **settings):
+    def assertRefused(self, release, text, new_tree=None, **settings):
         before = self.snapshot_state()
-        result = self.deploy(release, **settings)
+        result = self.deploy(release, new_tree=new_tree, **settings)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn(text, result.stderr)
         self.assertEqual(self.snapshot_state(), before, "a refused deploy changed the tree")
@@ -160,11 +166,13 @@ class TestDeploy(unittest.TestCase):
         return json.loads((self.tree / name).read_text())
 
     def test_new_tree(self):
+        started = int(time.time())
         result = self.assertDeploys(make_release(self.dir, 10))
         self.assertIn("a new tree", result.stderr)
         self.assertIn("1 builds, 5 content files", self.valid())
         tags = self.doc("tags.json")
-        self.assertEqual((tags["serial"], tags["tags"], tags["withdrawn"]), (1, {"latest": 10, "testing": 10, "stable": 10}, []))
+        self.assertEqual((tags["tags"], tags["withdrawn"]), ({"latest": 10, "testing": 10, "stable": 10}, []))
+        self.assertGreaterEqual(tags["serial"], started, "a new tree's serial starts at the time, not at 1")
         build = self.doc("builds/10.json")
         self.assertEqual(build["version"], "0.7.10")
         self.assertEqual(sorted(build["variants"]), ["linux-x86_64-qt5", "macos-x86_64-qt5.15"])
@@ -190,13 +198,43 @@ class TestDeploy(unittest.TestCase):
 
     def test_next_build(self):
         self.assertDeploys(make_release(self.dir, 10))
+        serial = self.doc("tags.json")["serial"]
         mirrors = (self.tree / "mirrors.json").read_bytes()
         result = self.assertDeploys(make_release(self.dir, 11))
         self.assertIn("5 content files, 2 of them new", result.stderr)
         self.assertIn("2 builds, 7 content files", self.valid())
         tags = self.doc("tags.json")
-        self.assertEqual((tags["serial"], tags["tags"]), (2, {"latest": 11, "testing": 10, "stable": 10}))
+        self.assertEqual(tags["tags"], {"latest": 11, "testing": 10, "stable": 10})
+        self.assertGreater(tags["serial"], serial)
         self.assertEqual((self.tree / "mirrors.json").read_bytes(), mirrors)
+
+    def test_new_tree_only_when_asked(self):
+        self.assertRefused(make_release(self.dir, 10), "has no tags document", new_tree=False)
+        self.assertFalse(self.tree.exists())
+        self.assertDeploys(make_release(self.dir, 10))
+        self.assertRefused(make_release(self.dir, 11), "has a tags document already", new_tree=True)
+
+    def test_lost_tags_document_is_no_new_tree(self):
+        # the newest build must not become Stable, with a serial that starts over
+        self.assertDeploys(make_release(self.dir, 10))
+        self.assertDeploys(make_release(self.dir, 11))
+        (self.tree / "tags.json").unlink()
+        (self.tree / "tags.json.sig").unlink()
+        self.assertRefused(make_release(self.dir, 12), "has no tags document", new_tree=False)
+        self.assertRefused(make_release(self.dir, 12), "isn't a new tree: it has builds (10 11)", new_tree=True)
+
+    def test_serial_passes_the_time_after_a_restore(self):
+        # a tree put back to an old tags document (a restored snapshot) still gets a serial
+        # above what was published since
+        self.assertDeploys(make_release(self.dir, 10))
+        tags = self.doc("tags.json")
+        published = tags["serial"]
+        tags["serial"] = 3
+        tree = updater_tree.Tree(common.Settings({**self.settings, "UPDATER_ONLINE_KEY": str(self.keys["online1"])}, {}))
+        for name, data in tree.sign("tags.json", tags).items():
+            (self.tree / name).write_bytes(data)
+        self.assertDeploys(make_release(self.dir, 11))
+        self.assertGreaterEqual(self.doc("tags.json")["serial"], published)
 
     def test_not_newer(self):
         self.assertDeploys(make_release(self.dir, 10))
@@ -308,6 +346,55 @@ class TestPublishingOrder(unittest.TestCase):
         without = publish.in_stages(changes, publish.publishing_order({"UPDATER_ROOT": ""}))
         self.assertIn("updater/tags.json", without[-1][1])
 
+
+
+class TestSerial(unittest.TestCase):
+    """The tags document's serial: what the next one is, and what may be published."""
+
+    def test_next_serial(self):
+        now = "2026-11-11T12:00:00Z"
+        seconds = 1794398400
+        self.assertEqual(updater_tree.next_serial(None, now), seconds, "a new tree starts at the time")
+        self.assertEqual(updater_tree.next_serial({"serial": 17}, now), seconds, "a low serial jumps to the time")
+        self.assertEqual(updater_tree.next_serial({"serial": seconds}, now), seconds + 1, "two in one second")
+        self.assertEqual(updater_tree.next_serial({"serial": seconds + 500}, now), seconds + 501, "a clock that went back")
+
+    def tags(self, directory, serial, latest=10):
+        path = Path(directory) / "updater" / "tags.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(formats.dump_json({"type": "tags", "format": 1, "serial": serial, "issued": "2026-11-11T12:00:00Z",
+                                            "tags": {"latest": latest, "testing": 10, "stable": 10}, "withdrawn": []}))
+
+    def check(self, published, root):
+        """None if the tree may be published, or what refused it."""
+        errors = io.StringIO()
+        stderr, sys.stderr = sys.stderr, errors
+        try:
+            updater_tree.check_published_serial(published, root, "updater")
+        except SystemExit:
+            return errors.getvalue()
+        finally:
+            sys.stderr = stderr
+        return None
+
+    def test_published_serial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            published, root = Path(directory) / "published", Path(directory) / "root"
+            published.mkdir()
+            root.mkdir()
+            self.assertIsNone(self.check(published, root), "no tree on either side")
+            self.tags(root, 20)
+            self.assertIsNone(self.check(published, root), "a new tree")
+            self.tags(published, 20)
+            self.assertIsNone(self.check(published, root), "the same document")
+            self.tags(root, 21, latest=11)
+            self.assertIsNone(self.check(published, root), "a higher serial")
+            self.tags(root, 20, latest=11)
+            self.assertIn("serial 20 is published", self.check(published, root), "another document, the same serial")
+            self.tags(root, 3)
+            self.assertIn("has serial 3, but serial 20 is published", self.check(published, root), "a restored snapshot")
+            (root / "updater" / "tags.json").unlink()
+            self.assertIn("the tree no longer has it", self.check(published, root))
 
 
 class TestUpdaterSettings(unittest.TestCase):

@@ -7,7 +7,9 @@ What was last published is a snapshot of the tree, named in FILES_ROOT.published
 difference between it and the tree now is what gets published, whatever deploys made it
 (Launcher builds, translations, Patreon credits; one or several); a successful publish then
 records a new snapshot. Restoring an earlier snapshot and publishing puts the live site
-back to it.
+back to it, except the new updater's tree (UPDATER_ROOT): its tags document is refused
+unless its serial is higher than the published one, since Launchers refuse a lower serial
+than they have seen. A restored tree gets one with its next deploy or tag move.
 
 1. With FILES_ORIGIN set (a live tree other jobs also write to, like the files server's): checks
    that every changed file on the live tree is either its published or its new version,
@@ -43,6 +45,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 import common
+import updater_tree
 
 log = common.logger("publish")
 
@@ -100,6 +103,9 @@ def main():
         if not changes:
             log("nothing to publish")
             return
+        if settings["UPDATER_ROOT"]:
+            # the new updater's tags never go back to a serial Launchers have passed
+            updater_tree.check_published_serial(published, root, settings["UPDATER_ROOT"])
 
         stages = in_stages(changes, publishing_order(settings))
         removed = sorted(path for path, change in changes.items() if change["new"] is None)

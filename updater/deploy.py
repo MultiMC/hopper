@@ -2,7 +2,7 @@
 """Deploy a Launcher release into the new updater's tree (UPDATER_ROOT in FILES_ROOT, the
 Design repo's UpdaterFormats.md): the publisher of the new layout, repoman's replacement.
 
-    updater/deploy.py [--config FILE] [--dry-run] [--if-configured] <release dir>
+    updater/deploy.py [--config FILE] [--dry-run] [--if-configured] [--new-tree] <release dir>
 
 Reads the release made by launcher/release-build.py (deploy/<platform>.tar.gz and
 manifest.json, with the requirements the compatibility gate measured) and adds it to the
@@ -14,8 +14,9 @@ tree as one build for all platforms:
   key (UPDATER_ONLINE_KEY);
 - the setup's keys documents (UPDATER_KEYS) the tree doesn't have yet, and a new mirror
   list (FILES_MIRRORS) if it changed;
-- the tags document with Latest moved to the build and its serial one higher, signed, last.
-  On a new tree the build is all three tags; otherwise Testing and Stable stay.
+- the tags document with Latest moved to the build and a higher serial (never lower than
+  the time in seconds, lib/updater_tree.py next_serial), signed, last. Testing and Stable
+  stay; on a new tree (--new-tree) the build is all three tags.
 
 Before anything is written, the whole tree as it would be is checked with the validator
 (lib/updater_formats.py); if that fails, nothing is written. Then the tree is snapshotted
@@ -36,6 +37,10 @@ empty directory. The current layout (update/, files/, the mmc-* downloads) isn't
 --if-configured
             for setups without a new updater tree (UPDATER_ROOT empty): say so and exit 0
             instead of failing (the release job runs it for every setup)
+--new-tree  start the tree with this build: only by hand, for a tree without builds and
+            without a tags document. Without it, a tree that has no tags document is
+            refused, whatever happened to it; with it, a tree that has one, or has builds,
+            is refused
 """
 
 import argparse
@@ -62,6 +67,7 @@ def main():
     parser.add_argument("--config", help="settings file overriding defaults.env")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--if-configured", action="store_true")
+    parser.add_argument("--new-tree", action="store_true")
     parser.add_argument("release", type=Path)
     args = parser.parse_args()
 
@@ -86,6 +92,8 @@ def main():
     with common.lock_files(settings):
         current = tree.tags()
         if current:
+            if args.new_tree:
+                common.die("%s has a tags document already: not a new tree (--new-tree)" % tree.root)
             if build <= current["tags"]["latest"]:
                 common.die("the tree's Latest is build %d; %d is not newer" % (current["tags"]["latest"], build))
             if build in current["withdrawn"]:
@@ -93,6 +101,14 @@ def main():
             tags = {**current["tags"], "latest": build}
             withdrawn = current["withdrawn"]
         else:
+            # Never by itself: a tree that lost its tags document would get the newest build
+            # as Stable, with a serial Launchers have passed long ago
+            if not args.new_tree:
+                common.die("%s has no tags document; if this is its first build, start the tree with --new-tree "
+                           "(the build becomes Latest, Testing and Stable)" % tree.root)
+            if tree.builds():
+                common.die("%s isn't a new tree: it has builds (%s), but no tags document"
+                           % (tree.root, " ".join(map(str, tree.builds()))))
             log("a new tree: build %d becomes Latest, Testing and Stable" % build)
             tags = {"latest": build, "testing": build, "stable": build}
             withdrawn = []

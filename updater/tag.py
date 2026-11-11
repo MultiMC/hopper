@@ -16,7 +16,7 @@ Both named at once are one move, one new tags document: Testing must not be olde
 new Stable.
 
 The build must be in the tree and not withdrawn. The tags document is rewritten with its
-serial one higher and signed with the online key; the tree as it would be is checked with
+serial higher (lib/updater_tree.py next_serial) and signed with the online key; the tree as it would be is checked with
 the validator first, and nothing is written if that fails. Then the tree is snapshotted and
 the tags document written, and the download archives of every tag that moved are written
 from the tree (lib/updater_downloads.py): downloads/updater/mmc-<tag>-<platform>, and for Stable also
@@ -63,7 +63,7 @@ def main():
     with common.lock_files(settings):
         current = tree.tags()
         if current is None:
-            common.die("%s has no tags document yet; updater/deploy.py starts a tree" % tree.root)
+            common.die("%s has no tags document yet; updater/deploy.py --new-tree starts a tree" % tree.root)
         tree.check_serial(current, args.serial)
         tags = dict(current["tags"])
         old_stable = tags["stable"]

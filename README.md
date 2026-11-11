@@ -507,7 +507,10 @@ whatever deploys made it (one or several), with each file's SHA-256 then and now
 snapshot keeps inode numbers, so only files whose inode, size or time differ are hashed.)
 A successful publish records a new snapshot as published; `files/pull.py` records the
 pulled tree, which equals the live one. Restoring an earlier snapshot and publishing puts
-the live site back to it.
+the live site back to it, except for the new updater's tree: a tags document that differs
+from the published one is refused unless its serial is higher, and so is a tree that lost
+it (`updater_tree.check_published_serial`; see "The serial never starts low"). After a
+restore, the tree's next deploy or tag move writes a serial that passes.
 
 1. **The live tree** (`FILES_ORIGIN`): every changed file must be either its published or
    its new version. Anything else means someone else changed it, and it stops (pull and
@@ -660,7 +663,7 @@ Monocypher; that comes with the Launcher's own tests.
 
 ## The new updater's tree (`updater/deploy.py`)
 
-    updater/deploy.py [--config FILE] [--dry-run] [--if-configured] <release dir>
+    updater/deploy.py [--config FILE] [--dry-run] [--if-configured] [--new-tree] <release dir>
 
 The publisher of the new layout (component 4 of `Updater.md` in the Design repo), repoman's
 replacement: it deploys a Launcher release into the setup's new updater tree, as
@@ -684,9 +687,21 @@ all platforms:
    be identical, signatures included. **The mirror list**: the base URLs of `FILES_MIRRORS`
    (the files site's roots, the tree being at `UPDATER_ROOT` below each), each a group of its
    own, in order; if it changed.
-4. **The tags document**, last: Latest moved to the build, the serial one higher. On a new
-   tree the build is Latest, Testing and Stable; otherwise Testing and Stable stay where
-   they are (moving them is the tag operations', still to come).
+4. **The tags document**, last: Latest moved to the build, with a higher serial. Testing and
+   Stable stay where they are (the tag operations move them). On a new tree the build is
+   Latest, Testing and Stable.
+
+**The serial never starts low** (2026-11-11; `updater_tree.next_serial`): it is one higher
+than the tree's, and never lower than the time in seconds. Launchers store the highest
+serial they have seen and refuse a lower one on every check, without telling anyone, so a
+tree that counts on from a low number (restored from a snapshot, or started again) cuts
+them off until its serial catches up. With the time in it, the next tags document of any
+tree is above everything published before, and nothing has to remember the highest serial.
+
+**A new tree is started by hand** (`--new-tree`), never by the release job: a tree without a
+tags document is refused otherwise, whatever happened to it, since starting over makes the
+build being deployed Stable. With `--new-tree`, a tree that has a tags document, or builds
+without one, is refused.
 
 Everything new is signed with the online key (`UPDATER_ONLINE_KEY`, which must be an online
 key of the newest keys document). Then, **before anything is written**, the whole tree as

@@ -151,10 +151,10 @@ class Tree:
 
     def tags_changes(self, tags, withdrawn, now):
         """The tags document with these tags ({latest, testing, stable}) and withdrawn builds,
-        its serial one higher than the tree's."""
+        its serial higher than the tree's (next_serial)."""
         current = self.tags()
         return self.sign("tags.json", {"type": "tags", "format": formats.FORMAT,
-                                       "serial": current["serial"] + 1 if current else 1, "issued": now,
+                                       "serial": next_serial(current, now), "issued": now,
                                        "tags": tags, "withdrawn": withdrawn})
 
     def gate(self, changes, hashes=True):
@@ -253,6 +253,40 @@ def keys_documents(directory):
     if not found or sorted(found) != list(range(1, len(found) + 1)):
         common.die("%s: the keys documents must be 1.json to N.json without gaps" % directory)
     return [found[v] for v in sorted(found)]
+
+
+def next_serial(current, now):
+    """The serial of the tags document written at `now` (as now() gives it) after `current`
+    (None on a new tree): one higher than the tree's, and never lower than the time in
+    seconds. Launchers refuse a serial lower than one they have seen, so a tree that was
+    restored from a snapshot or started again must not count on from a low number: with the
+    time in it, its next tags document is above everything published before."""
+    seconds = int(datetime.datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp())
+    return max(current["serial"] + 1 if current else 1, seconds)
+
+
+def check_published_serial(published, root, name):
+    """Stop unless the tags document of the tree `name` in the files tree `root` may replace
+    the one in the snapshot `published` (what is live): a changed document needs a higher
+    serial, and one that is live can't go away. Launchers that have seen the live serial
+    refuse a lower one on every check, and nothing tells their users."""
+    old, new = Path(published) / name / "tags.json", Path(root) / name / "tags.json"
+    if not old.is_file():
+        return
+    if not new.is_file():
+        common.die("%s is published, but the tree no longer has it; Launchers would find no tags" % old.relative_to(published))
+    old_data, new_data = old.read_bytes(), new.read_bytes()
+    if old_data == new_data:
+        return
+    try:
+        old_serial = formats.check_document("tags.json", old_data)["serial"]
+        new_serial = formats.check_document("tags.json", new_data)["serial"]
+    except formats.Invalid as e:
+        common.die("%s/tags.json: %s" % (name, e))
+    if new_serial <= old_serial:
+        common.die("%s/tags.json has serial %d, but serial %d is published: Launchers that have seen it would refuse "
+                   "this one (a restored snapshot?). The next deploy or tag move writes a higher serial"
+                   % (name, new_serial, old_serial))
 
 
 def show_tags(tags):
