@@ -1029,10 +1029,10 @@ also the only test of a `--bridge` that goes through.
 
 Two things about files2 as it is decide how it starts:
 
-- Launchers with updater 1 read the `develop` channel and nothing else. files2 builds the
-  Launcher's `updater` branch into a channel of that name, which they never see; its
-  `develop` channel stopped at build 5048. So the rehearsal builds `develop`, once the
-  updater work is merged there, as production will.
+- Launchers with updater 1 read the `develop` channel and nothing else. Until 2026-11-11
+  files2 built the Launcher's `updater` branch into a channel of that name, which they
+  never see, and its `develop` channel stopped at build 5048. It builds `develop` again
+  now, as production does, so the rehearsal's builds land where those Launchers look.
 - files2's builds have updater 2 already. The rehearsal needs a last build with updater 1
   to freeze at, made by hand with the setting overridden.
 
@@ -1043,11 +1043,11 @@ server as hopper, with `--config config/files2.env` (left out below).
 settings overridden for the build and its deploy (the environment goes over the settings
 file):
 
-    export UPDATER_VERSION=1 UPDATER_ROOT_KEYS= LAUNCHER_BRANCH=develop
+    export UPDATER_VERSION=1 UPDATER_ROOT_KEYS=
     launcher/release-build.py
     files/deploy.py $STATE/releases-files2/F
     files/publish.py
-    unset UPDATER_VERSION UPDATER_ROOT_KEYS LAUNCHER_BRANCH
+    unset UPDATER_VERSION UPDATER_ROOT_KEYS
 
 Not `updater/deploy.py`: with the override it would take `F` into the new tree as Latest.
 Without the override it refuses `F`, as it should.
@@ -1057,9 +1057,9 @@ Without the override it refuses `F`, as it should.
 or later, win32-5.15.2, osx64-5.15.2. Each says there is no update. These are the
 Launchers the cutover moves.
 
-**3. The freeze.** In `config/files2.env`: `CURRENT_LAYOUT_FROZEN_AT=F` and
-`LAUNCHER_BRANCH=develop` (and in `laminar/cfg/jobs/launcher-files2.conf`, which names
-the branch too).
+**3. The freeze.** In `config/files2.env`: `CURRENT_LAYOUT_FROZEN_AT=F`. No build of the
+job may come between `F` and the freeze: it would have updater 2 and go into the `develop`
+channel, above `F`.
 
 **4. Builds with updater 2, `B` and `B+1`,** through the job (`launcher-files2`), one after
 the other. Each run's log says the current layout is frozen and the build isn't deployed to
@@ -1389,7 +1389,7 @@ with fixed tool versions, ...) come later.
 
 Since 2026-10-30 (before that, hopper's own daemon), Laminar's job `<stream>-<setup>` releases
 a stream with `config/<setup>.env`: `launcher-production` and `launcher-files2` for each new commit of
-the Launcher repo's `develop` (files2: its `LAUNCHER_BRANCH`, `updater` for the updater work), `translations-production` and `translations-files2` for each new commit
+the Launcher repo's `develop` (files2: its `LAUNCHER_BRANCH`, `develop` too since 2026-11-11), `translations-production` and `translations-files2` for each new commit
 of the Translations repo's `master`, `website-production` for each new commit of the Website
 repo's `master` (it replaced the build-only `website` job, whose runs stay in Laminar's
 history), `patrons-production` every day at noon. Their `.run` are links to one script,
