@@ -18,7 +18,7 @@ directory down and is run from the top of the checkout, e.g.
 |-----------|------|
 | `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing, as JSON, for `web/`; `builds.py` lists a setup's builds, and checks and queues moving tags, withdrawing and pruning; `runs.py` cancels queued runs |
 | `web/` | The view of all this in the browser, with Laminar's logs, the actions on builds, and `/api/overview`: `hopper-web`, in Go with only its standard library |
-| `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh` for both Windows platforms, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `verify-build.py` checks an incremental release against a clean build of the same commit, with `compare-releases.py`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE |
+| `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh` for both Windows platforms, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `verify-build.py` checks an incremental release against a clean build of the same commit, with `compare-releases.py`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE; `gui.py` runs a build on a virtual display and drives it, to check the GUI |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
@@ -206,6 +206,30 @@ In KDevelop (Project → Open Configuration):
 KDevelop's own Docker runtime isn't used: it reads the image's files through Docker's
 `GraphDriver.MergedDir`, which Docker's containerd image store doesn't provide. With CMake
 3.10 KDevelop imports the project from `compile_commands.json`.
+
+## Checking the GUI without a desktop (`launcher/gui.py`)
+
+    launcher/gui.py start <launcher> <data-dir> [--size WxH]
+    launcher/gui.py shot <file.png> [--crop WxH+X+Y] [--scale PERCENT]
+    launcher/gui.py click X Y [BUTTON]
+    launcher/gui.py key KEY...
+    launcher/gui.py move TEXT X Y
+    launcher/gui.py size TEXT WIDTH HEIGHT
+    launcher/gui.py stop
+
+Runs a Launcher build (the host build's `MultiMC`, say) on its own Xvfb display (`:77`, or
+`HOPPER_GUI_DISPLAY`) with a data folder of its own, takes screenshots and clicks and types
+into it, so a change can be seen and tried without touching the desktop. Use a fresh data
+folder for each scenario: copy themes, instances or a `multimc.cfg` into it first. A data
+folder without `Theme` set starts with the setup wizard.
+
+There is no window manager: windows open at 0,0 without frames, the newest one gets the
+keyboard, and dialogs cover the main window until moved aside (`move Settings 820 0`).
+Settings are written when the settings dialog closes, so a Launcher stopped while it is open
+keeps the old ones. For a crash, run the binary under `gdb -batch -ex run -ex bt --args ...`
+with `DISPLAY=:77` instead of `start`.
+
+Needs Xvfb, python-xlib and ImageMagick.
 
 ## Releases
 
