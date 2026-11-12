@@ -780,6 +780,61 @@ Latest alone; a build that isn't newer, a bad bundle, a wrong setup, an online k
 the keys document, a differing keys document and a corrupt content file already in the tree
 are refused with the tree unchanged.
 
+## The update test (`updater/update-test.py`)
+
+    updater/update-test.py [--config FILE] [--if-configured] [--restore-on-failure] [--platform NAME] [--keep]
+
+Users who pick Latest must always be able to go back to Stable, and a build whose updater
+doesn't work can't be fixed by a later one (the Design repo's Updater.md, "Testing the way
+back to Stable"). So before a new Latest is published, its own updater is made to do that:
+the test installs Latest from the local tree (as its manifest lists it) and runs it headless
+with the Launcher's `--update <tier>` (a tier switch as in the settings, without any window),
+in the platform's toolchain image, against the local tree. Four steps:
+
+| Installed | Run | Expected |
+|---|---|---|
+| Latest | `--update stable` | 0, and the files are Stable's |
+| Stable | `--update stable` | 2, nothing to do |
+| Stable | `--update latest` | 0, and the files are Latest's |
+| Latest | `--update latest` | 2, nothing to do |
+
+After each install the installation is checked against the build's manifest: every file's
+content and executable bit, every link, nothing of the other build left over. The first
+step runs Latest's real updater (its compiled-in keys, mirrors, variant and build number)
+through the whole path: the keys chain, the mirror list, the tags, the downgrade, the
+download, the install, the restart with the live check.
+
+The tree is served over HTTPS inside the container under the files site's real host names
+(`FILES_MIRRORS` and the tree's mirror list, mapped to the container with `--add-host`),
+by `updater/update-test-serve.py`, with a certificate from a CA made for the run, which is
+the only one the Launcher trusts there (mounted as the image's `/etc/ssl/certs`).
+`updater/update-test-run.sh` runs one step in the image. Nothing is signed and nothing is
+written into the tree.
+
+- **Nothing to test** (exit 0) when Latest is Stable, as on a new tree.
+- **Stable must know `--update`** (Launcher builds from 2026-11-12 on): it is asked with
+  `--help`, and when it doesn't, the test fails, since the way back can't be tested. On a
+  tree whose Stable is older, move Stable first.
+- **Linux only** for now (lin64 by default, lin32 with `--platform`), in their images. Other
+  platforms, real machines and the GUI are for later (Updater.md).
+- **Laminar's release job** runs it right after `updater/deploy.py`, with
+  `--restore-on-failure`: when it fails, the snapshot `updater/deploy.py` took before it wrote
+  Latest is restored (`files/snapshots.py`), so the failed build is never published, and the
+  job fails. A failure of the test itself (the container engine, for example) does the same.
+- The work directory (the installation, each step's Launcher logs) is in `$STATE`, kept when
+  the test fails (its path is printed) or with `--keep`.
+
+What it doesn't cover: the GUI around the updater (the update dialog, the variant
+questions; the headless mode only shares the check, the download, the install and the live
+check with it), other platforms, and real systems. A pass says the way back works on Linux
+in the image, not more.
+
+Verified 2026-11-12 on a local setup with throwaway keys (two lin64 builds of the Launcher
+with `--update`, deployed with `updater/deploy.py`, Stable moved with `updater/tag.py`): all
+four steps passed in about 5 seconds; with a failing run and `--restore-on-failure`, the
+tree went back to its snapshot from before the new Latest. The first run found that the
+restarted build has to stay up for the live check (fixed in the Launcher before the pass).
+
 ## Tag operations (`updater/tag.py`, `updater/remove.py`, `updater/prune.py`)
 
     updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] testing|stable <build> [testing|stable <build>]

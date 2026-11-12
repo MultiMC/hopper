@@ -5,6 +5,8 @@
 #
 #   launcher      launcher/release-build.py --incremental [$COMMIT], files/deploy.py, files/publish.py,
 #                 then updater/deploy.py (the new updater's tree, for setups that have one),
+#                 updater/update-test.py (the new Latest goes back to Stable and up again; when
+#                 it can't, the tree is restored to before it and the job fails),
 #                 updater/prune.py (its size cap) and files/publish.py again
 #   translations  translations/build.py [$COMMIT], files/deploy.py, files/publish.py
 #   patrons       patrons/update.py, files/deploy.py, files/publish.py
@@ -68,6 +70,7 @@ else
     files/publish.py --config "$config"
     if [[ $stream == launcher ]]; then
         updater/deploy.py --config "$config" --if-configured "$release"
+        updater/update-test.py --config "$config" --if-configured --restore-on-failure
         updater/prune.py --config "$config" --if-configured
         files/publish.py --config "$config"
     fi
