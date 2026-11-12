@@ -7,19 +7,25 @@
 #
 # Mounted: /tree the files tree (read-only), /tls the test CA's server certificate and key,
 # /etc/ssl/certs the test CA alone (so nothing else is trusted), /t the installation and the
-# server's log, /run the scripts. The image's Qt is in /opt/qt56 (the Linux images; the start
+# server's log, /hopper the scripts. The image's Qt is in /opt/qt56 (the Linux images; the start
 # script takes it from LAUNCHER_LIBRARY_PATH).
 set -u
 
 tier=$1
 
-python3 /run/update-test-serve.py /tree /tls/server.pem /tls/server.key 2>>/t/serve.log &
+python3 /hopper/update-test-serve.py /tree /tls/server.pem /tls/server.key 2>>/t/serve.log &
 server=$!
 # the server listens within a second; the Launcher retries a refused connection on its mirrors anyway
+listening=
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if (exec 3<>/dev/tcp/127.0.0.1/443) 2>/dev/null; then break; fi
+    if (exec 3<>/dev/tcp/127.0.0.1/443) 2>/dev/null; then listening=1; break; fi
     sleep 0.5
 done
+if [[ -z $listening ]]; then
+    echo "update-test-run.sh: the HTTPS server isn't listening on port 443:" >&2
+    tail -5 /t/serve.log >&2
+    exit 1
+fi
 
 export QT_QPA_PLATFORM=offscreen LAUNCHER_LIBRARY_PATH=/opt/qt56/lib
 timeout "${STEP_TIMEOUT:-180}" /t/MultiMC/MultiMC --update "$tier"

@@ -119,8 +119,8 @@ def test(settings, p, tree, tags, keep):
         for n, (start, tier, expected, files) in enumerate(STEPS, 1):
             log("step %d: %s (build %d) --update %s, expecting %d"
                 % (n, start.capitalize(), tags[start], tier, expected))
-            status = step(settings, p, work, install, tls, tier)
-            keep_logs(install / p.bundle, work / ("step%d" % n))
+            status, output = step(settings, p, work, install, tls, tier)
+            keep_logs(install / p.bundle, work / ("step%d" % n), output)
             if status != expected:
                 common.die("step %d: --update %s exited %d, not %d; logs in %s" % (n, tier, status, expected, work / ("step%d" % n)))
             problems = check_installed(tree, install / p.bundle, variants[files], variants["latest" if files == "stable" else "stable"])
@@ -208,36 +208,51 @@ def assemble(tree, variant, root):
 def container(settings, p, install, tls, command):
     """The command that runs `command` in the platform's image, with the tree served under the
     site's host names and only the test CA trusted."""
-    cmd = common.container_run(settings)
+    # The server binds port 443 as the calling user: docker allows that by default, podman
+    # doesn't. The scripts go to /hopper, not /run, which podman uses itself (.containerenv).
+    cmd = common.container_run(settings) + ["--sysctl", "net.ipv4.ip_unprivileged_port_start=0"]
     for name in tls["hosts"]:
         cmd += ["--add-host", "%s:127.0.0.1" % name]
     cmd += ["-v", "%s:/tree:ro" % settings["FILES_ROOT"], "-v", "%s:/tls:ro" % tls["directory"],
             "-v", "%s:/etc/ssl/certs:ro" % (tls["directory"] / "certs"), "-v", "%s:/t" % install,
-            "-v", "%s:/run:ro" % HERE, settings[p.image_setting]]
+            "-v", "%s:/hopper:ro" % HERE, settings[p.image_setting]]
     return cmd + command
 
 
 def knows_update(settings, p, install, tls):
-    """Whether the build installed in `install` knows --update: its --help says."""
+    """Whether the build installed in `install` knows --update: its --help says. Stops when
+    --help doesn't run at all (the container, the installation), with what it printed."""
     command = ["bash", "-c", "QT_QPA_PLATFORM=offscreen LAUNCHER_LIBRARY_PATH=/opt/qt56/lib /t/MultiMC/MultiMC --help"]
-    result = subprocess.run(container(settings, p, install, tls, command), capture_output=True, text=True)
+    result = subprocess.run(container(settings, p, install, tls, command), stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+    if result.returncode != 0 or "--help" not in result.stdout:
+        common.die("couldn't run Stable's --help in the %s image (exit %d): %s"
+                   % (p.name, result.returncode, " | ".join(result.stdout.strip().splitlines()[-8:]) or "no output"))
     return "--update" in result.stdout
 
 
 def step(settings, p, work, install, tls, tier):
-    result = subprocess.run(container(settings, p, install, tls, ["bash", "/run/update-test-run.sh", tier]),
+    result = subprocess.run(container(settings, p, install, tls, ["bash", "/hopper/update-test-run.sh", tier]),
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for line in result.stdout.splitlines():
         # the Launcher's own summary line (the log has it too)
         if line.startswith("Update (headless)"):
             log("    " + line.strip())
-    return result.returncode
+    if result.returncode not in (UPDATED, NOTHING_TO_DO):
+        for line in result.stdout.strip().splitlines()[-5:]:
+            log("    | " + line)
+    return result.returncode, result.stdout
 
 
-def keep_logs(root, directory):
+def keep_logs(root, directory, output):
+    """The step's Launcher logs, the server's log and everything the step printed."""
     directory.mkdir()
     for log_file in root.glob("MultiMC-*.log"):
         shutil.copy(log_file, directory)
+    serve = root.parent / "serve.log"
+    if serve.is_file():
+        shutil.move(str(serve), str(directory / "serve.log"))
+    (directory / "output.txt").write_text(output)
 
 
 def check_installed(tree, root, variant, other):
