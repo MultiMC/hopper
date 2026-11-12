@@ -1023,9 +1023,22 @@ to it. Since 2026-11-04 files2's Launchers are built with the new updater
 
 ### The cutover rehearsal
 
-Written 2026-11-11, not run yet. The cutover (above, "The freeze and the bridge") done
-once on files2, with the same commands and in the same order, before production. It is
-also the only test of a `--bridge` that goes through.
+The cutover (above, "The freeze and the bridge") done once on files2, with the same
+commands and in the same order, before production. It is also the only test of a
+`--bridge` that goes through.
+
+Run 2026-11-11 and 12, and it went as written: `F` was 5072 (develop 63e958fd, built by
+hand with updater 1), `B` 5073, `B+1` 5074, `B+2` 5075. The job skipped the frozen layout
+for all three; `--bridge` was refused before 5073 was Stable and before that was
+published, went through once, and was refused for 5074 after. An install of `B` updated
+to `B+1`, and an install of `F` moved over the bridge, asked for the tier, landed on
+Stable and later updated to 5075, on every platform but lin32 (no machine for it any
+more): lin64 on a virtual display, the others by hand. What it turned up:
+
+- By hand on the build server the scripts need `CONTAINER_ENGINE=podman` (step 1).
+- The trigger starts no run for a commit it has already built on another branch, so `B`
+  and the builds after it were queued by hand (`laminarc queue launcher-files2`).
+- files2 is frozen at 5072 since, with 5073 as its bridge.
 
 Two things about files2 as it is decide how it starts:
 
