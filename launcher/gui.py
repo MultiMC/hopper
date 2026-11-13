@@ -14,7 +14,8 @@ start   starts Xvfb on the display (if it isn't running) and the Launcher binary
 stop    stops Launchers started on the display, then its Xvfb
 shot    the whole screen as PNG (ImageMagick's import), cropped and scaled if asked
 click   at screen coordinates; BUTTON 1 left (default), 3 right, 4 and 5 the wheel
-key     X keysym names, pressed in turn: Down, Escape, Return, BackSpace, a
+key     X keysym names, pressed in turn: Down, Escape, Return, BackSpace, a; joined with +,
+        held together: ctrl+z, ctrl+shift+z (ctrl, shift, alt and super for their left keys)
 move    the top-level window whose title contains TEXT, to X Y
 size    the same window, to WIDTH x HEIGHT
 
@@ -134,13 +135,19 @@ def x_commands(command, args):
         time.sleep(0.05)
         xtest.fake_input(d, X.ButtonRelease, button)
     elif command == "key":
-        for key in args:
-            keysym = XK.string_to_keysym(key)
-            if not keysym:
-                fail(f"no key named {key}")
-            code = d.keysym_to_keycode(keysym)
-            xtest.fake_input(d, X.KeyPress, code)
-            xtest.fake_input(d, X.KeyRelease, code)
+        modifiers = {"ctrl": "Control_L", "shift": "Shift_L", "alt": "Alt_L", "super": "Super_L"}
+        for chord in args:
+            codes = []
+            for key in chord.split("+") if len(chord) > 1 else [chord]:
+                keysym = XK.string_to_keysym(modifiers.get(key.lower(), key))
+                if not keysym:
+                    fail(f"no key named {key}")
+                codes.append(d.keysym_to_keycode(keysym))
+            # held in order, let go the other way round
+            for code in codes:
+                xtest.fake_input(d, X.KeyPress, code)
+            for code in reversed(codes):
+                xtest.fake_input(d, X.KeyRelease, code)
             d.sync()
             time.sleep(0.05)
     elif command == "move":
