@@ -32,6 +32,7 @@ EXPIRY_WARNING = datetime.timedelta(days=90)
 HEX64 = re.compile(r"[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 TIME = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+DATE = re.compile(r"\d{4}-\d\d-\d\d")
 VERSION = re.compile(r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*")
 # a build's version: major.minor.build (Updater.md, Versions)
 BUILD_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.([1-9][0-9]*)")
@@ -285,7 +286,16 @@ def _resolve(link_path, links, where):
 
 
 def _check_variant(variant_id, variant, where):
-    _fields(variant, where, {"name", "supersedes", "requires", "files", "links"})
+    fields = {"name", "supersedes", "requires", "files", "links"}
+    # optional: the last day builds of the variant are made (YYYY-MM-DD)
+    if isinstance(variant, dict) and "deprecated" in variant:
+        fields.add("deprecated")
+        _string(variant["deprecated"], "%s.deprecated" % where, DATE)
+        try:
+            datetime.date.fromisoformat(variant["deprecated"])
+        except ValueError:
+            raise Invalid("%s.deprecated: not a date: %s" % (where, variant["deprecated"]))
+    _fields(variant, where, fields)
     _string(variant["name"], "%s.name" % where, VARIANT_NAME)
     if len(variant["name"]) > MAX_VARIANT_NAME:
         raise Invalid("%s.name: longer than %d characters" % (where, MAX_VARIANT_NAME))
@@ -737,3 +747,99 @@ def check_tree(root, floor, now=None, hashes=True, overlay=None):
                % (keys_doc["version"], tags["serial"], tags["tags"]["latest"], tags["tags"]["testing"],
                   tags["tags"]["stable"], len(builds), len(listed)))
     return summary, warnings
+
+
+# --- continuity between two builds -------------------------------------------------------
+
+def _version_tuple(version):
+    return tuple(int(part) for part in version.split("."))
+
+
+def continuity(old, new, retired=None):
+    """What would strand Launchers of the build manifest `old` when a tag moves from it to
+    `new` (both valid manifests): (problems, warnings), each a list of sentences.
+
+    Problems, which leave installations of a variant without an update:
+    - a variant of `old` that `new` doesn't have, and that no variant of `new` lists in
+      `supersedes` (the Launcher looks for its own variant or one that supersedes it), or
+      only variants that require more (the Windows Qt 5.6 variant replaced by Qt 5.15 leaves
+      Windows XP and Vista behind);
+    - a variant that requires something it didn't before: a Launcher that doesn't know the
+      requirement counts it as unmet;
+    - a requirement that got stricter (a higher os_version, glibc, glibcxx or qt): systems in
+      between are left behind.
+    A variant in `retired` ({variant ID: when and why}, hopper's retired platforms) is
+    expected to go: its leaving is a warning, whatever supersedes it.
+    Warnings, which Launchers with updater 2 handle since 2026-11-12 (Install.cpp), but which
+    are rare enough to look at: paths that change only in case, and paths that are a file in
+    one build and a directory in the other.
+    """
+    problems, warnings = [], []
+    retired = retired or {}
+    successors = {}
+    for variant_id, variant in new["variants"].items():
+        for superseded in variant["supersedes"]:
+            successors.setdefault(superseded, []).append(variant_id)
+    for variant_id, variant in sorted(old["variants"].items()):
+        if variant_id not in new["variants"]:
+            if variant_id in retired:
+                warnings.append("variant %s leaves with build %d, as declared: retired %s; it moves to %s"
+                                % (variant_id, new["build"], retired[variant_id],
+                                   ", ".join(sorted(successors.get(variant_id, []))) or "nothing (its users are told)"))
+            elif variant_id not in successors:
+                problems.append("variant %s of build %d isn't in build %d, and nothing there supersedes it"
+                                % (variant_id, old["build"], new["build"]))
+            elif not any(not _stricter(variant["requires"], new["variants"][s]["requires"]) for s in successors[variant_id]):
+                problems.append("variant %s of build %d isn't in build %d, and what supersedes it (%s) requires more: "
+                                "installations on systems in between are left behind"
+                                % (variant_id, old["build"], new["build"], ", ".join(sorted(successors[variant_id]))))
+            continue
+        after = new["variants"][variant_id]
+        before_requires, after_requires = variant["requires"], after["requires"]
+        added = sorted(set(after_requires) - set(before_requires))
+        if added:
+            problems.append("variant %s requires %s in build %d, which build %d didn't"
+                            % (variant_id, ", ".join(added), new["build"], old["build"]))
+        for key in sorted(set(after_requires) & set(before_requires) - {"os", "arch"}):
+            if _version_tuple(after_requires[key]) > _version_tuple(before_requires[key]):
+                problems.append("variant %s requires %s %s in build %d, up from %s in build %d"
+                                % (variant_id, key, after_requires[key], new["build"], before_requires[key], old["build"]))
+        warnings += _path_changes(variant_id, variant, after, old["build"], new["build"])
+    return problems, warnings
+
+
+def _stricter(before, after):
+    """Whether the requirements `after` ask for anything `before` didn't (another key, a
+    higher version, another OS or architecture)."""
+    for key, value in after.items():
+        if key not in before:
+            return True
+        if key in ("os", "arch"):
+            if value != before[key]:
+                return True
+        elif _version_tuple(value) > _version_tuple(before[key]):
+            return True
+    return False
+
+
+def _path_changes(variant_id, before, after, old_build, new_build):
+    def paths(variant):
+        return {entry["path"] for entry in variant["files"] + variant["links"]}
+
+    def directories(listed):
+        return {"/".join(path.split("/")[:n]) for path in listed for n in range(1, path.count("/") + 1)}
+
+    old_paths, new_paths = paths(before), paths(after)
+    warnings = []
+    folded = {}
+    for path in old_paths - new_paths:
+        folded.setdefault(path.casefold(), path)
+    for path in sorted(new_paths - old_paths):
+        if path.casefold() in folded:
+            warnings.append("variant %s: %s in build %d is %s in build %d (only the case differs)"
+                            % (variant_id, folded[path.casefold()], old_build, path, new_build))
+    for path in sorted(old_paths & directories(new_paths)):
+        warnings.append("variant %s: %s is a file in build %d and a directory in build %d" % (variant_id, path, old_build, new_build))
+    for path in sorted(new_paths & directories(old_paths)):
+        warnings.append("variant %s: %s is a directory in build %d and a file in build %d" % (variant_id, path, old_build, new_build))
+    return warnings

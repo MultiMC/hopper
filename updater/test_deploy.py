@@ -236,6 +236,23 @@ class TestDeploy(unittest.TestCase):
         self.assertDeploys(make_release(self.dir, 11))
         self.assertGreaterEqual(self.doc("tags.json")["serial"], published)
 
+    def test_continuity(self):
+        """A build that would leave Latest's installations without an update is refused,
+        unless that's meant (--allow-discontinuity)."""
+        self.assertDeploys(make_release(self.dir, 10))
+        # a platform left out: its installations would find nothing to update to
+        release = make_release(self.dir, 11)
+        manifest = json.loads((release / "manifest.json").read_text())
+        del manifest["platforms"]["osx64-5.15.2"]
+        (release / "manifest.json").write_text(json.dumps(manifest))
+        self.assertRefused(release, "variant macos-x86_64-qt5.15 of build 10 isn't in build 11")
+        # a stricter requirement than Latest's
+        stricter = make_release(self.dir, 12, requires={"os": "linux", "arch": "x86_64", "glibc": "2.27",
+                                                        "glibcxx": "3.4.21", "qt": "5.6"})
+        self.assertRefused(stricter, "requires glibc 2.27 in build 12, up from 2.14")
+        result = self.assertDeploys(stricter, "--allow-discontinuity")
+        self.assertIn("allowed (--allow-discontinuity)", result.stderr)
+
     def test_not_newer(self):
         self.assertDeploys(make_release(self.dir, 10))
         self.assertRefused(make_release(self.dir, 10), "the tree's Latest is build 10; 10 is not newer")

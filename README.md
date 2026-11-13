@@ -689,7 +689,7 @@ Monocypher; that comes with the Launcher's own tests.
 
 ## The new updater's tree (`updater/deploy.py`)
 
-    updater/deploy.py [--config FILE] [--dry-run] [--if-configured] [--new-tree] <release dir>
+    updater/deploy.py [--config FILE] [--dry-run] [--if-configured] [--new-tree] [--allow-discontinuity] <release dir>
 
 The publisher of the new layout (component 4 of `Updater.md` in the Design repo), repoman's
 replacement: it deploys a Launcher release into the setup's new updater tree, as
@@ -780,6 +780,39 @@ Latest alone; a build that isn't newer, a bad bundle, a wrong setup, an online k
 the keys document, a differing keys document and a corrupt content file already in the tree
 are refused with the tree unchanged.
 
+### Continuity between builds
+
+`updater/deploy.py` (for Latest) and `updater/tag.py` (for each tag it moves) compare the
+build a tag points at now with the one it is about to point at
+(`lib/updater_formats.py` `continuity`), since the installations on the old one update to
+the new one, and neither the validator nor the update test (one variant against itself)
+compares two builds. Refused, with the tree unchanged:
+
+- **a variant that disappears** with nothing in the new build listing it in `supersedes`
+  (a platform left out of `PLATFORMS`, a `supersedes` chain cut in the middle), or with only
+  successors that require more (the Windows Qt 5.6 variant replaced by Qt 5.15 leaves
+  Windows XP and Vista behind);
+- **a new requirement key**: a Launcher that doesn't know it counts it as unmet;
+- **a stricter requirement**: a higher `os_version`, `glibc`, `glibcxx` or `qt`, for example
+  from a toolchain change; systems in between are left behind.
+
+Only logged as warnings, since Launchers with updater 2 handle them (since 2026-11-12): paths
+that change only in case, and paths that are a file in one build and a directory in the
+other.
+
+**Deprecating a variant** comes first: the platform's `deprecated` in the platform table
+(`"2027-03-01: Windows XP and Vista"`, the last day builds of it are made and why). Every
+build then carries the date in that variant (UpdaterFormats.md, `deprecated`), and the
+Launchers on it tell their users ahead of time. Nothing else changes until it's retired.
+
+**Retiring a variant on purpose** is declared in hopper's platform table
+(`lib/common.py` `PLATFORMS`, the platform's `retired`: when and why). It is then never built
+again (a setup that lists it in `PLATFORMS` is refused), and its variant leaving is accepted
+(logged). Its installations move to what supersedes it, if their system runs that, or are
+told that their variant is no longer made. Anything else that's meant (a stricter
+requirement) goes with `--allow-discontinuity`, once, for that run; the release job never
+passes it, so such a build fails its job and is deployed by hand.
+
 ## The update test (`updater/update-test.py`)
 
     updater/update-test.py [--config FILE] [--if-configured] [--restore-on-failure] [--platform NAME] [--keep]
@@ -837,7 +870,7 @@ restarted build has to stay up for the live check (fixed in the Launcher before 
 
 ## Tag operations (`updater/tag.py`, `updater/remove.py`, `updater/prune.py`)
 
-    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] testing|stable <build> [testing|stable <build>]
+    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] [--allow-discontinuity] testing|stable <build> [testing|stable <build>]
     updater/remove.py [--config FILE] [--dry-run] [--serial N] [--json] <build>
     updater/prune.py [--config FILE] [--dry-run] [--if-configured] [--cap-mb N] [--serial N] [--json]
 

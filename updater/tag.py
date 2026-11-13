@@ -2,9 +2,9 @@
 """Move the new updater's Testing or Stable tag (the Design repo's Updater.md, "Tag-based
 releases and promotion"; the tags document in UpdaterFormats.md).
 
-    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] testing <build>
-    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] stable <build>
-    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] testing <build> stable <build>
+    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] [--allow-discontinuity] testing <build>
+    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] [--allow-discontinuity] stable <build>
+    updater/tag.py [--config FILE] [--dry-run] [--serial N] [--json] [--allow-discontinuity] testing <build> stable <build>
 
 testing  the build becomes the Testing build. It must be newer than the current Testing
          build (and so than Stable): tags only move forward. A bad Testing build is
@@ -30,6 +30,12 @@ again (after an interrupted run, say). Nothing is published: files/publish.py do
 --serial N  refuse unless the tags document's serial is N: the tags are still those someone
             decided on (any deployed build moves Latest, and so the serial, too)
 --json      at the end, print what was done, or would be, as JSON on stdout
+--allow-discontinuity
+            move the tags even when the installations on a tag's old build would be left
+            without an update by its new one (lib/updater_formats.py continuity: a new or
+            stricter requirement, a variant that disappears): only when that's meant. A
+            variant dropped on purpose is retired in lib/common.py PLATFORMS instead.
+            Without it, such a move is refused, with the tree unchanged
 """
 
 import argparse
@@ -54,6 +60,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--serial", type=int)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--allow-discontinuity", action="store_true")
     parser.add_argument("moves", nargs="+", metavar="TAG BUILD")
     args = parser.parse_args()
     named = parse_moves(args.moves)
@@ -84,6 +91,10 @@ def main():
             tags["testing"] = max(tags["testing"], tags["stable"])
         moved = [tag for tag in ("testing", "stable") if tags[tag] != current["tags"][tag] or tag in named]
         log("%stags: %s -> %s" % ("(dry run) " if args.dry_run else "", updater_tree.show_tags(current["tags"]), updater_tree.show_tags(tags)))
+
+        # the installations on each moved tag's old build update to its new one
+        pairs = sorted({(current["tags"][tag], tags[tag]) for tag in moved if tags[tag] != current["tags"][tag]})
+        updater_tree.check_continuity([(tree.build(old), tree.build(new)) for old, new in pairs], args.allow_discontinuity, log)
 
         changes = {}
         if tags != current["tags"]:

@@ -481,6 +481,14 @@ class TestDocuments(unittest.TestCase):
         self.macos(self.build)["name"] = "x" * 64
         self.check(self.build)
 
+    def test_variant_deprecated(self):
+        windows = self.build["variants"]["windows-x86-qt5.6"]
+        windows["deprecated"] = "2027-03-01"
+        self.check(self.build)
+        for date in ["2027-02-30", "2027-3-1", "March 2027", 20270301, ""]:
+            windows["deprecated"] = date
+            self.assertInvalid("deprecated", self.build)
+
     def test_supersedes_itself(self):
         self.macos(self.build)["supersedes"] = ["macos-x86_64-qt5.15"]
         self.assertInvalid("supersedes itself", self.build)
@@ -673,6 +681,91 @@ def write_sample(directory):
     keys = make_keys(directory / "keys")
     sample_tree(directory / "tree", keys)
     print("%s: the tree; %s: its throwaway keys; floor: tree/keys/1.json" % (directory / "tree", directory / "keys"))
+
+
+class TestContinuity(unittest.TestCase):
+    """formats.continuity: what would strand installations when a tag moves between builds."""
+
+    def builds(self):
+        old, _ = sample_build(10)
+        new, _ = sample_build(11)
+        return old, new
+
+    def test_same_variants_continue(self):
+        self.assertEqual(formats.continuity(*self.builds()), ([], []))
+
+    def test_dropped_variant(self):
+        old, new = self.builds()
+        del new["variants"]["windows-x86-qt5.6"]
+        problems, _ = formats.continuity(old, new)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("windows-x86-qt5.6", problems[0])
+
+    def test_superseded_variant(self):
+        old, new = self.builds()
+        windows = new["variants"].pop("windows-x86-qt5.6")
+        new["variants"]["windows-x86-qt5.15"] = {**windows, "supersedes": ["windows-x86-qt5.6"]}
+        self.assertEqual(formats.continuity(old, new), ([], []))
+
+    def test_successor_requiring_more(self):
+        # Qt 5.15 needs Windows 7: XP and Vista would be left behind
+        old, new = self.builds()
+        windows = new["variants"].pop("windows-x86-qt5.6")
+        new["variants"]["windows-x86-qt5.15"] = {**windows, "supersedes": ["windows-x86-qt5.6"],
+                                                "requires": {"os": "windows", "arch": "x86", "os_version": "6.1"}}
+        problems, _ = formats.continuity(old, new)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("requires more", problems[0])
+
+    def test_retired_variant_may_go(self):
+        old, new = self.builds()
+        del new["variants"]["windows-x86-qt5.6"]
+        problems, warnings = formats.continuity(old, new, {"windows-x86-qt5.6": "2027-01-15: Windows XP and Vista"})
+        self.assertEqual(problems, [])
+        self.assertIn("retired 2027-01-15", warnings[0])
+        self.assertIn("nothing (its users are told)", warnings[0])
+
+    def test_new_requirement(self):
+        old, new = self.builds()
+        del old["variants"]["linux-x86_64-qt5"]["requires"]["glibcxx"]
+        problems, _ = formats.continuity(old, new)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("requires glibcxx", problems[0])
+
+    def test_stricter_requirement(self):
+        old, new = self.builds()
+        new["variants"]["linux-x86_64-qt5"]["requires"]["glibc"] = "2.27"
+        problems, _ = formats.continuity(old, new)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("glibc 2.27", problems[0])
+        # compared as numbers, not as text
+        new["variants"]["linux-x86_64-qt5"]["requires"]["glibc"] = "2.9"
+        self.assertEqual(formats.continuity(old, new)[0], [])
+
+    def test_looser_requirement_is_fine(self):
+        old, new = self.builds()
+        new["variants"]["macos-x86_64-qt5.15"]["requires"]["os_version"] = "10.12"
+        self.assertEqual(formats.continuity(old, new), ([], []))
+
+    def test_case_only_rename_is_a_warning(self):
+        old, new = self.builds()
+        for entry in new["variants"]["windows-x86-qt5.6"]["files"]:
+            if entry["path"] == "Qt5Core.dll":
+                entry["path"] = "qt5core.dll"
+        problems, warnings = formats.continuity(old, new)
+        self.assertEqual(problems, [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("only the case differs", warnings[0])
+
+    def test_file_becomes_directory_is_a_warning(self):
+        old, new = self.builds()
+        files = new["variants"]["linux-x86_64-qt5"]["files"]
+        for entry in files:
+            if entry["path"] == "MultiMC":
+                entry["path"] = "MultiMC/run"
+        problems, warnings = formats.continuity(old, new)
+        self.assertEqual(problems, [])
+        self.assertTrue(any("a file in build 10 and a directory in build 11" in w for w in warnings), warnings)
 
 
 if __name__ == "__main__":

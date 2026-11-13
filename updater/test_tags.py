@@ -83,6 +83,17 @@ class TestTags(unittest.TestCase):
         self.refused("no tag latest", "tag.py", "latest", 12)
         self.refused("each tag and its build", "tag.py", "testing")
 
+    def test_continuity(self):
+        # Latest went to a build with a stricter requirement (allowed then); Stable following
+        # it is a move of its own, checked again
+        self.deploy(10)
+        stricter = make_release(self.dir, 11, requires={"os": "linux", "arch": "x86_64", "glibc": "2.27",
+                                                        "glibcxx": "3.4.21", "qt": "5.6"})
+        self.ok("deploy.py", "--allow-discontinuity", stricter)
+        self.refused("requires glibc 2.27 in build 11, up from 2.14 in build 10", "tag.py", "stable", 11)
+        self.ok("tag.py", "--allow-discontinuity", "stable", 11)
+        self.assertEqual(self.tags(), {"latest": 11, "testing": 11, "stable": 11})
+
     def test_serial_guards_what_was_decided(self):
         self.deploy(10, 11)
         serial = self.doc("tags.json")["serial"]

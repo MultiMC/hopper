@@ -2,7 +2,7 @@
 """Deploy a Launcher release into the new updater's tree (UPDATER_ROOT in FILES_ROOT, the
 Design repo's UpdaterFormats.md): the publisher of the new layout, repoman's replacement.
 
-    updater/deploy.py [--config FILE] [--dry-run] [--if-configured] [--new-tree] <release dir>
+    updater/deploy.py [--config FILE] [--dry-run] [--if-configured] [--new-tree] [--allow-discontinuity] <release dir>
 
 Reads the release made by launcher/release-build.py (deploy/<platform>.tar.gz and
 manifest.json, with the requirements the compatibility gate measured) and adds it to the
@@ -37,6 +37,12 @@ empty directory. The current layout (update/, files/, the mmc-* downloads) isn't
 --if-configured
             for setups without a new updater tree (UPDATER_ROOT empty): say so and exit 0
             instead of failing (the release job runs it for every setup)
+--allow-discontinuity
+            deploy even when Latest's installations would be left without an update by it
+            (lib/updater_formats.py continuity: a new or stricter requirement, a variant
+            that disappears): only when that's meant. A variant dropped on purpose is
+            retired in lib/common.py PLATFORMS instead. Without it, such a build is refused,
+            with the tree unchanged
 --new-tree  start the tree with this build: only by hand, for a tree without builds and
             without a tags document. Without it, a tree that has no tags document is
             refused, whatever happened to it; with it, a tree that has one, or has builds,
@@ -68,6 +74,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--if-configured", action="store_true")
     parser.add_argument("--new-tree", action="store_true")
+    parser.add_argument("--allow-discontinuity", action="store_true")
     parser.add_argument("release", type=Path)
     args = parser.parse_args()
 
@@ -118,6 +125,9 @@ def main():
         with tempfile.TemporaryDirectory(dir=release, prefix=".updater.") as work:
             now = updater_tree.now()
             doc, contents = build_manifest(release, manifest, platforms, Path(work))
+            if current:
+                # Latest's installations update to it
+                updater_tree.check_continuity([(tree.build(current["tags"]["latest"]), doc)], args.allow_discontinuity, log)
             # Content files the tree has already stay as they are, and are checked as they are
             changes = {formats.content_path(sha256): path for sha256, path in contents.items()
                        if not (tree.root / formats.content_path(sha256)).exists()}
@@ -172,6 +182,8 @@ def build_manifest(release, manifest, platforms, work):
                        % (release, p.name))
         files, links, found = bundle(release / info["deploy_archive"], p, work / p.name)
         variants[p.variant] = {"name": p.variant_name, "supersedes": list(p.supersedes), "requires": info["requires"], "files": files, "links": links}
+        if p.deprecated_until():
+            variants[p.variant]["deprecated"] = p.deprecated_until()
         for sha256, path in found.items():
             contents.setdefault(sha256, path)
     doc = {"type": "build", "format": formats.FORMAT, "build": manifest["build_number"],

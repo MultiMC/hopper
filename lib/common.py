@@ -58,6 +58,31 @@ class Platform:
     variant: str         # its variant ID in the new updater's build manifests (UpdaterFormats.md)
     variant_name: str    # the variant's name, shown to users
     supersedes: tuple = ()  # variant IDs it replaces: Launchers move to it unless their users object
+    # Set when the platform is deprecated: until when builds of it are made, and why
+    # ("2027-03-01: Windows XP and Vista"). Every build carries the date in its variant
+    # (UpdaterFormats.md, `deprecated`), and the Launchers on it tell their users ahead of
+    # time. Retiring it (below) is the step after that date.
+    deprecated: str = ""
+    # Set when the platform is retired on purpose: when and why ("2027-01-15: Windows XP and
+    # Vista"). It is never built again (a setup that lists it in PLATFORMS is refused), and
+    # its variant leaving the builds is accepted by the continuity check (updater/deploy.py,
+    # updater/tag.py), which refuses any other variant that disappears. Installations on it
+    # move to what supersedes it, if their system runs that, or are told that their variant
+    # is no longer made. The entry stays, for the builds that have it.
+    retired: str = ""
+
+    def deprecated_until(self):
+        """The date (YYYY-MM-DD) in `deprecated`, or None."""
+        if not self.deprecated:
+            return None
+        date = self.deprecated.split(":", 1)[0].strip()
+        try:
+            datetime.date.fromisoformat(date)
+        except ValueError:
+            date = ""
+        if not re.fullmatch(r"\d{4}-\d\d-\d\d", date):
+            die("%s: deprecated must start with a date, YYYY-MM-DD, not %r" % (self.name, self.deprecated))
+        return date
 
     def package(self, branch):
         """The download package's name, as TeamCity's deploy named it."""
@@ -73,6 +98,11 @@ PLATFORMS = {p.name: p for p in [
              "Windows, Qt 5.15", ("windows-x86-qt5.6",)),
     Platform("osx64-5.15.2", "IMAGE_OSX64", "osx64.sh", "MultiMC.app", "tar.gz", "macos-x86_64-qt5.15", "macOS, Qt 5.15"),
 ]}
+
+
+def retired_variants():
+    """{variant ID: when and why} of the retired platforms."""
+    return {p.variant: p.retired for p in PLATFORMS.values() if p.retired}
 
 
 def platform(name):
@@ -124,7 +154,11 @@ class Settings(dict):
         self.defaults = defaults
 
     def platforms(self):
-        return [platform(name) for name in self["PLATFORMS"].split()]
+        out = [platform(name) for name in self["PLATFORMS"].split()]
+        for p in out:
+            if p.retired:
+                die("%s is retired (%s); take it out of PLATFORMS" % (p.name, p.retired))
+        return out
 
 
 def load_settings(config_file=None):

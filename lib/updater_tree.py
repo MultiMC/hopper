@@ -209,6 +209,28 @@ class Tree:
             shutil.rmtree(incoming)
 
 
+def check_continuity(moves, allow, log):
+    """Refuse a tag move that would strand installations (updater_formats.continuity), for
+    each (old manifest, new manifest) pair, unless `allow` (--allow-discontinuity: when it's
+    meant). Variants retired in hopper's platform table (common.PLATFORMS) may go. Warnings
+    are only logged."""
+    found = []
+    for old, new in moves:
+        problems, warnings = formats.continuity(old, new, common.retired_variants())
+        for warning in warnings:
+            log("warning: %s" % warning)
+        found += problems
+    if not found:
+        return
+    if allow:
+        for problem in found:
+            log("allowed (--allow-discontinuity): %s" % problem)
+        return
+    common.die("installations would be left without an update, nothing written: %s. A variant dropped on "
+               "purpose is retired in lib/common.py PLATFORMS; for anything else that's meant (a stricter "
+               "requirement), run it again with --allow-discontinuity" % "; ".join(found))
+
+
 def write_order(name):
     """Content files, build manifests, keys documents and the mirror list, then the tags
     document; within each, a document before its signature."""
