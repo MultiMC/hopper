@@ -1012,10 +1012,25 @@ a known version 2 or 1 (not newer), and with another key pinned in place of a ro
 
 ### Production's keys: the ceremony
 
-Not done yet; it comes before the bridge build (`Updater.md`, Before the cutover). Written
-2026-11-09, gone through again 2026-11-14 (the paper is the `age` file). Where the root keys
-and the passphrases are kept, and who else holds a copy, is decided and recorded privately,
-never in this repo.
+Done 2026-11-14, with the offline image on a real machine, following a printed copy of these
+steps. `config/keys/production/1.json` is the first keys document (expires 2028-12-01; the
+renewal is due about 18 months ahead of that, by 2028-06), signed by both root keys, each on
+its own YubiKey (PIN and touch to sign) with an `age` paper copy:
+
+| Key | Public key |
+|-----|------------|
+| root1 | `f0b61b217d3e1f419401fdfe2bc4865424e9ee6a8be60055b4f14b37d0c19540` |
+| root2 | `21f1854affb3a9a83d911ef5aab1d077fba0d5927725b490efba56aaff524398` |
+| online1 | `37659576a0ae1faeef47f3207e14c7dbfaabf15536e13e0caef1b700fd845430` |
+
+The online key's private half is in `~/keys/production/` on the build server. Production's
+settings still use updater 1: the keys come in with the freeze ("The freeze and the
+bridge"). Where the root keys and the passphrases are kept, and who else holds a copy, is
+decided and recorded privately, never in this repo.
+
+The steps below are how it was done (written 2026-11-09, gone through again 2026-11-14). It
+could be streamlined (fewer sticks, a script that walks through it), but it's done every
+couple of years, so a checklist is enough.
 
 **Before**
 
