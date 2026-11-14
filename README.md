@@ -527,6 +527,13 @@ the right version name (TeamCity's VM builds were named `0.0.0`).
 
 ### `files/publish.py`
 
+After a publish with the new updater's tree, it asks every base URL Launchers use (the
+tree's mirror list and `FILES_MIRRORS`) for the keys document after the newest, with the
+Launcher's user agent: every update check ends its keys walk on a 404 for that signature
+(UpdaterFormats.md, The keys document). No host answering 404 fails the run, since every
+Launcher's check would fail; a host answering anything else is a warning. That runs after
+the publish is recorded: a host misbehaving isn't the publish's doing.
+
 Publishes the tree, not a release: what was last published is a snapshot, named in
 `FILES_ROOT.published`, and the difference between it and the tree now is what goes out,
 whatever deploys made it (one or several), with each file's SHA-256 then and now. (A

@@ -209,6 +209,57 @@ class Tree:
             shutil.rmtree(incoming)
 
 
+# The user agent the Launcher sends (BuildConfig.USER_AGENT): hosts and caches may answer some
+# clients differently (Cloudflare gave Python's default one a 403)
+LAUNCHER_USER_AGENT = "MultiMC/5.0"
+
+
+def http_status(url):
+    """The HTTP status a GET of url gets, as the Launcher would ask, or the error (a string)
+    when there is no answer at all."""
+    import urllib.error
+    import urllib.request
+    request = urllib.request.Request(url, headers={"User-Agent": LAUNCHER_USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (urllib.error.URLError, OSError) as e:
+        return str(getattr(e, "reason", e))
+
+
+def probe_next_keys(settings, log, status=http_status):
+    """Ask every base URL Launchers use (the tree's mirror list and FILES_MIRRORS) for the
+    signature of the keys document after the newest, as every update check does
+    (UpdaterFormats.md, Serving). The walk only ends well when some mirror answers 404, so:
+    none does -> stop with each answer (every check of every Launcher fails); some don't ->
+    a warning for each (checks still work, by a detour). Returns {url: answer}."""
+    root = Path(settings["FILES_ROOT"], settings["UPDATER_ROOT"])
+    versions = []
+    for path in (root / "keys").glob("*.json"):
+        m = formats.KEYS_NAME.fullmatch("keys/" + path.name)
+        if m:
+            versions.append(int(m.group(1)))
+    if not versions:
+        return {}
+    name = "%s/keys/%d.json.sig" % (settings["UPDATER_ROOT"], max(versions) + 1)
+    bases = list(common.site_urls(settings["FILES_MIRRORS"]))
+    data = (root / "mirrors.json").read_bytes() if (root / "mirrors.json").is_file() else None
+    if data is not None:
+        for group in formats.check_document("mirrors.json", data)["mirrors"]:
+            bases += [base for base in group if base not in bases]
+    answers = {base + name: status(base + name) for base in bases}
+    others = {url: answer for url, answer in answers.items() if answer != 404}
+    if len(others) == len(answers):
+        common.die("no mirror answers 404 for %s, so every Launcher's update check fails: %s"
+                   % (name, "; ".join("%s: %s" % item for item in sorted(answers.items()))))
+    for url, answer in sorted(others.items()):
+        log("warning: %s answers %s, not 404: Launchers' checks take a detour through the other mirrors" % (url, answer))
+    log("the next keys document (%s) is a 404 on %d of %d base URLs" % (name, len(answers) - len(others), len(answers)))
+    return answers
+
+
 def check_continuity(moves, allow, log):
     """Refuse a tag move that would strand installations (updater_formats.continuity), for
     each (old manifest, new manifest) pair, unless `allow` (--allow-discontinuity: when it's

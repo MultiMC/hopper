@@ -253,6 +253,32 @@ class TestDeploy(unittest.TestCase):
         result = self.assertDeploys(stricter, "--allow-discontinuity")
         self.assertIn("allowed (--allow-discontinuity)", result.stderr)
 
+    def test_probe_next_keys(self):
+        """After a publish: the keys document after the newest must be a 404 somewhere."""
+        self.assertDeploys(make_release(self.dir, 10))
+        settings = {"FILES_ROOT": str(self.files), "UPDATER_ROOT": "updater", "FILES_MIRRORS": MIRRORS}
+        asked, logged = [], []
+
+        def answers(*codes):
+            def status(url):
+                asked.append(url)
+                return codes[len(asked) - 1]
+            return status
+
+        result = updater_tree.probe_next_keys(settings, logged.append, answers(404, 404))
+        self.assertEqual(sorted(result), ["https://bucket.example.org/updater/keys/2.json.sig",
+                                          "https://files.example.org/updater/keys/2.json.sig"])
+        self.assertFalse([line for line in logged if line.startswith("warning")])
+        # one host answers otherwise: a warning, checks still work
+        asked.clear()
+        logged.clear()
+        updater_tree.probe_next_keys(settings, logged.append, answers(403, 404))
+        self.assertTrue(any("answers 403" in line for line in logged), logged)
+        # nobody answers 404: every check would fail
+        asked.clear()
+        with self.assertRaises(SystemExit):
+            updater_tree.probe_next_keys(settings, logged.append, answers(403, "timed out"))
+
     def test_not_newer(self):
         self.assertDeploys(make_release(self.dir, 10))
         self.assertRefused(make_release(self.dir, 10), "the tree's Latest is build 10; 10 is not newer")

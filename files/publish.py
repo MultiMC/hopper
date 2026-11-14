@@ -26,6 +26,10 @@ than they have seen. A restored tree gets one with its next deploy or tag move.
    each base URL of FILES_MIRRORS: the files server and the bucket. Needs CLOUDFLARE_ZONE_ID and an API token with Zone / Cache Purge
    permission in the file CLOUDFLARE_TOKEN (outside this repo). If it fails, publishing
    again retries it (nothing is recorded as published until everything succeeded).
+4. With the new updater's tree (UPDATER_ROOT), at the end: asks every base URL Launchers use
+   for the keys document after the newest, which must be a 404 somewhere, as every update
+   check needs (lib/updater_tree.py probe_next_keys; fails the run if no host answers 404,
+   warns for each that doesn't).
 
 rclone transfers and compares many files at once (32); it compares by size and MD5, so
 objects uploaded earlier aren't uploaded again.
@@ -133,6 +137,10 @@ def main():
             removed = common.cleanup_snapshots(settings)
             if removed:
                 log("removed %d old snapshots" % len(removed))
+            if settings["UPDATER_ROOT"]:
+                # after recording: a host that answers wrong isn't this publish's fault, but
+                # it stops every Launcher's update check, so the job fails and says so
+                updater_tree.probe_next_keys(settings, log)
     skipped = [name for name, done in (("bucket", bucket), ("purge", purge)) if not done]
     log("done" + (", skipped: " + " ".join(skipped) if skipped else ""))
 
