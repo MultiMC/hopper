@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import common
 import runs
 import trigger
+import updater_downloads as downloads
 
 RUNS = 100  # the newest runs listed
 TAGS = ["latest", "testing", "stable"]  # the new updater's, in the order they are shown
@@ -124,7 +125,7 @@ def updater(settings):
 
 
 def tag_downloads(settings, tag):
-    urls = {name: download_url(settings, "downloads/updater/mmc-%s-%s" % (tag, name)) for name in common.PLATFORMS}
+    urls = {name: download_url(settings, "downloads/" + downloads.tag_stem(tag, p.variant)) for name, p in common.PLATFORMS.items()}
     return [{"platform": name, "url": url} for name, url in sorted(urls.items()) if url]
 
 

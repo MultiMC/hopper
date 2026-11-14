@@ -87,11 +87,11 @@ def tree_builds(settings, tags):
         doc = formats.check_document("builds/" + path.name, path.read_bytes())
         number = doc["build"]
         platforms = []
-        for platform in sorted(names.get(variant, variant) for variant in doc["variants"]):
-            url = overview.download_url(settings, "downloads/updater/archive/%d/mmc-%d-%s" % (number, number, platform))
+        for variant in sorted(doc["variants"], key=lambda v: names.get(v, v)):
+            url = overview.download_url(settings, "downloads/" + downloads.archive_stem(doc, variant))
             for tag in named.get(number, []):
-                url = url or overview.download_url(settings, "downloads/updater/mmc-%s-%s" % (tag, platform))
-            platforms.append({"platform": platform, "url": url})
+                url = url or overview.download_url(settings, "downloads/" + downloads.tag_stem(tag, variant))
+            platforms.append({"platform": names.get(variant, variant), "url": url})
         builds.append({"build": number, "commit": doc["commit"], "built": local_time(doc["built"]), "platforms": platforms,
                        "archived": number in archived,
                        "tags": [tag for tag in overview.TAGS if tag in named.get(number, [])]})

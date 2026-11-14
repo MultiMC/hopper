@@ -74,7 +74,7 @@ class TestTags(unittest.TestCase):
         self.ok("tag.py", "testing", 12, "stable", 11)
         self.assertEqual(self.tags(), {"latest": 12, "testing": 12, "stable": 11})
         self.assertGreater(self.doc("tags.json")["serial"], serial, "a move writes a higher serial")
-        self.assertTrue((self.downloads() / "archive" / "11").is_dir())
+        self.assertTrue((self.downloads() / "archive" / "0.7.11").is_dir())
 
     def test_both_tags_refused(self):
         self.deploy(10, 11, 12)
@@ -136,8 +136,11 @@ class TestTags(unittest.TestCase):
         self.assertEqual(report["moved"], ["testing", "stable"])
         self.assertTrue(report["dry_run"])
 
+    def settings_dict(self):
+        return {"FILES_ROOT": str(self.files)}
+
     def downloads(self):
-        return self.files / "downloads" / "updater"
+        return self.files / "downloads"
 
     def lin64_binary(self, archive):
         with tarfile.open(archive) as tar:
@@ -146,16 +149,17 @@ class TestTags(unittest.TestCase):
     def test_new_tree_writes_every_tag(self):
         self.deploy(10)
         names = sorted(p.name for p in self.downloads().iterdir() if p.is_file())
-        self.assertEqual(names, sorted("mmc-%s-%s.tar.gz" % (tag, platform) for tag in ("latest", "testing", "stable")
-                                       for platform in ("lin64", "osx64-5.15.2")))
-        self.assertTrue((self.downloads() / "archive/10/mmc-10-lin64.tar.gz").is_file())
+        variants = ("linux-x86_64-qt5", "macos-x86_64-qt5.15")
+        self.assertEqual(names, sorted(["MultiMC-%s.tar.gz" % v for v in variants]
+                                       + ["MultiMC-%s-%s.tar.gz" % (tag, v) for tag in ("latest", "testing") for v in variants]))
+        self.assertTrue((self.downloads() / "archive/0.7.10/MultiMC-0.7.10-linux-x86_64-qt5.tar.gz").is_file())
         self.deploy(11)
-        self.assertEqual(self.lin64_binary(self.downloads() / "mmc-latest-lin64.tar.gz"), b"linux 11")
-        self.assertEqual(self.lin64_binary(self.downloads() / "mmc-stable-lin64.tar.gz"), b"linux 10")
+        self.assertEqual(self.lin64_binary(self.downloads() / "MultiMC-latest-linux-x86_64-qt5.tar.gz"), b"linux 11")
+        self.assertEqual(self.lin64_binary(self.downloads() / "MultiMC-linux-x86_64-qt5.tar.gz"), b"linux 10")
 
     def test_archive_is_the_bundle(self):
         self.deploy(10)
-        with tarfile.open(self.downloads() / "mmc-latest-osx64-5.15.2.tar.gz") as tar:
+        with tarfile.open(self.downloads() / "MultiMC-latest-macos-x86_64-qt5.15.tar.gz") as tar:
             members = {m.name: m for m in tar.getmembers()}
         self.assertEqual(members["MultiMC.app/Contents/MacOS/MultiMC"].mode, 0o755)
         self.assertEqual(members["MultiMC.app/Contents/Frameworks/QtCore.framework/Versions/5/QtCore"].mode, 0o644)
@@ -163,18 +167,33 @@ class TestTags(unittest.TestCase):
         self.assertTrue(members["MultiMC.app/Contents"].isdir())
         self.assertEqual({m.mtime for m in members.values()}, {1793566512})
         # The same build gives the same bytes
-        first = checksum(self.downloads() / "mmc-latest-lin64.tar.gz")
+        first = checksum(self.downloads() / "MultiMC-latest-linux-x86_64-qt5.tar.gz")
         self.ok("tag.py", "stable", 10)
-        self.assertEqual(checksum(self.downloads() / "mmc-stable-lin64.tar.gz"), first)
-        with gzip.open(self.downloads() / "mmc-latest-lin64.tar.gz") as gz:
+        self.assertEqual(checksum(self.downloads() / "MultiMC-linux-x86_64-qt5.tar.gz"), first)
+        with gzip.open(self.downloads() / "MultiMC-latest-linux-x86_64-qt5.tar.gz") as gz:
             gz.read(1)  # the header is read with the first data
             self.assertEqual(gz.mtime, 1793566512)
+
+    def test_archive_names(self):
+        import updater_downloads as downloads
+        # a build made before versions had the build in them is archived under its number
+        release = make_release(self.dir, 10)
+        manifest = json.loads((release / "manifest.json").read_text())
+        manifest["version_name"] = "0.7.0"
+        (release / "manifest.json").write_text(json.dumps(manifest))
+        self.ok("deploy.py", "--new-tree", release)
+        self.assertTrue((self.downloads() / "archive/10/MultiMC-10-linux-x86_64-qt5.tar.gz").is_file())
+        # anything else in downloads/archive/ isn't an archive, and stays as it is
+        for name in ("old-stuff", "2023", "5.0.12"):
+            (self.downloads() / "archive" / name).mkdir()
+            (self.downloads() / "archive" / name / "readme.txt").write_text("not ours")
+        self.assertEqual(downloads.archived_builds(self.settings_dict()), {10})
 
     def test_testing_moves_forward_only(self):
         self.deploy(10, 11, 12)
         self.ok("tag.py", "testing", 11)
         self.assertEqual(self.tags(), {"latest": 12, "testing": 11, "stable": 10})
-        self.assertEqual(self.lin64_binary(self.downloads() / "mmc-testing-lin64.tar.gz"), b"linux 11")
+        self.assertEqual(self.lin64_binary(self.downloads() / "MultiMC-testing-linux-x86_64-qt5.tar.gz"), b"linux 11")
         serial = self.doc("tags.json")["serial"]
         self.ok("tag.py", "testing", 11)
         self.assertEqual(self.doc("tags.json")["serial"], serial, "naming the same build again moved the tags")
@@ -188,8 +207,8 @@ class TestTags(unittest.TestCase):
         self.ok("tag.py", "testing", 11)
         self.ok("tag.py", "stable", 12)
         self.assertEqual(self.tags(), {"latest": 12, "testing": 12, "stable": 12})
-        self.assertTrue((self.downloads() / "archive/12/mmc-12-lin64.tar.gz").is_file())
-        self.assertEqual(self.lin64_binary(self.downloads() / "mmc-testing-lin64.tar.gz"), b"linux 12")
+        self.assertTrue((self.downloads() / "archive/0.7.12/MultiMC-0.7.12-linux-x86_64-qt5.tar.gz").is_file())
+        self.assertEqual(self.lin64_binary(self.downloads() / "MultiMC-testing-linux-x86_64-qt5.tar.gz"), b"linux 12")
         self.refused("tags only move forward", "tag.py", "stable", 11)
 
     def test_stable_keeps_newer_testing(self):
@@ -201,9 +220,9 @@ class TestTags(unittest.TestCase):
     def test_old_stable_gets_its_archive(self):
         self.deploy(10, 11)
         # As on files2, whose first Stable build was set before there were archives
-        shutil.rmtree(self.downloads() / "archive/10")
+        shutil.rmtree(self.downloads() / "archive/0.7.10")
         self.ok("tag.py", "stable", 11)
-        self.assertTrue((self.downloads() / "archive/10/mmc-10-lin64.tar.gz").is_file())
+        self.assertTrue((self.downloads() / "archive/0.7.10/MultiMC-0.7.10-linux-x86_64-qt5.tar.gz").is_file())
 
     def test_dry_run(self):
         self.deploy(10, 11)
@@ -226,8 +245,8 @@ class TestTags(unittest.TestCase):
         shared = fixtures.formats.content_files(self.doc("builds/11.json"))
         for sha256 in only_12:
             self.assertEqual((self.tree / fixtures.formats.content_path(sha256)).exists(), sha256 in shared)
-        self.assertEqual(self.lin64_binary(self.downloads() / "mmc-latest-lin64.tar.gz"), b"linux 11")
-        self.assertEqual(self.lin64_binary(self.downloads() / "mmc-testing-lin64.tar.gz"), b"linux 11")
+        self.assertEqual(self.lin64_binary(self.downloads() / "MultiMC-latest-linux-x86_64-qt5.tar.gz"), b"linux 11")
+        self.assertEqual(self.lin64_binary(self.downloads() / "MultiMC-testing-linux-x86_64-qt5.tar.gz"), b"linux 11")
         self.refused("withdrawn already", "remove.py", 12)
         self.refused("withdrawn", "tag.py", "testing", 12)
         self.refused("was withdrawn", "deploy.py", make_release(self.dir, 12))
@@ -239,8 +258,8 @@ class TestTags(unittest.TestCase):
         self.ok("tag.py", "stable", 11)
         self.ok("tag.py", "stable", 12)
         self.ok("remove.py", 11)
-        self.assertFalse((self.downloads() / "archive/11").exists())
-        self.assertTrue((self.downloads() / "archive/10").exists())
+        self.assertFalse((self.downloads() / "archive/0.7.11").exists())
+        self.assertTrue((self.downloads() / "archive/0.7.10").exists())
 
     def test_prune(self):
         self.deploy(10, 11, 12, 13, 14, 15)

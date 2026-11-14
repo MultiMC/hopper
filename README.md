@@ -495,7 +495,7 @@ layout is frozen first, and takes exactly one more build, by hand:
    Translations and the Patreon credits are deployed as before.
 2. The setup is switched to updater 2. Its builds are in the new tree only, where no
    Launcher with updater 1 sees them. Install one from the tree's downloads
-   (`downloads/updater/`) on every platform and update it to a later build: that is the
+   (`downloads/MultiMC-latest-<variant>`) on every platform and update it to a later build: that is the
    test of a bridge candidate, with the setup's real keys and hosts.
 3. `updater/tag.py stable <build>` and `files/publish.py`, then
    `files/deploy.py --bridge <release>` and `files/publish.py`. `--bridge` refuses unless
@@ -905,17 +905,23 @@ of them publishes: `files/publish.py` does, removals included.
   the tree unchanged. Naming the build a tag already has changes no tags and writes that
   tag's download archives again.
 
-**Download archives** (`lib/updater_downloads.py`): every tag move writes
-`downloads/updater/mmc-<tag>-<platform>.<tar.gz|zip>` for the tag's build, and Stable also
-`downloads/updater/archive/<build>/mmc-<build>-<platform>...`, kept for good: the archive is also the
+**Download archives** (`lib/updater_downloads.py`): every tag move writes the tag's build
+for each variant, named by the variant ID, `downloads/MultiMC-<variant>.<tar.gz|zip>` for
+Stable (what the website offers) and `downloads/MultiMC-<tag>-<variant>...` for Testing and
+Latest, and Stable also `downloads/archive/<version>/MultiMC-<version>-<variant>...` (the
+build number in place of the version for builds made before versions had it), kept for
+good (names decided 2026-11-14; `downloads/updater/mmc-<tag>-<platform>` before that, on
+files2 only): the archive is also the
 record of which builds have been Stable, which `prune.py` never purges (a Stable build
 without one, such as the first, set by `updater/deploy.py` before there were archives, gets
 it when Stable moves on). They are made from the tree itself, the manifest and its content
 files, so a download holds exactly what Launchers install: the bundle's top directory,
 entries in path order, owned by root, every time the build's `built` time, so the same build
 always gives the same bytes. They are not part of the updater's tree; `files/publish.py`
-publishes them with the rest of `downloads/`. The current layout's `mmc-develop-*` downloads
-are unchanged.
+publishes them with the rest of `downloads/`. The current layout's `mmc-*` downloads are
+unchanged, and can't collide: every new name starts with `MultiMC-`. In `downloads/archive/`,
+only folders named like a version or a build number that hold `MultiMC-*` files count as
+archives; anything else there is left alone.
 
 Tests (btrfs, like the publisher's):
 
@@ -1172,7 +1178,7 @@ it, and the build is in the new tree. The installs of `F` still say there is no 
 the frozen layout hides the new builds.
 
 **5. The candidate, `B`.** Between the two builds of step 4, install `B` on every platform
-from the new tree's downloads (`downloads/updater/mmc-latest-<platform>`), next to the
+from the new tree's downloads (then `downloads/updater/mmc-latest-<platform>`), next to the
 installs of `F`, on the Latest tier. After `B+1`: each updates to `B+1`, starts, and then
 says there is no update. That is the test `--bridge` can't make: `B`'s updater works, on
 every platform, against the published tree. The platforms are tested side by side.

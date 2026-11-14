@@ -23,7 +23,7 @@ Before anything is written, the whole tree as it would be is checked with the va
 (files/snapshots.py lists and restores the snapshots) and the files are written in the
 format's write order, each replaced atomically, the tags document last; the tree is checked
 once more as written. Then the download archives of the tags that moved are written from
-the tree (lib/updater_downloads.py): downloads/updater/mmc-latest-<platform>, and on a new tree also
+the tree (lib/updater_downloads.py): downloads/MultiMC-latest-<variant>, and on a new tree also
 Testing's and Stable's, and Stable's archive. Nothing is published: files/publish.py
 publishes the tree and the downloads.
 

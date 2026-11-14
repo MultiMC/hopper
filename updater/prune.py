@@ -6,7 +6,7 @@ releases and promotion"): purge the oldest builds that nothing needs any more.
 
 What counts toward the cap (UPDATER_MAX_SIZE_MB) is the content files that only purgeable
 builds list. Never purged: the builds the tags name (Latest, Testing, Stable) and every build
-that has been Stable (it has a download archive, downloads/updater/archive/<build>/,
+that has been Stable (it has a download archive, downloads/archive/<version>/,
 lib/updater_downloads.py); the files only they list don't count. While the rest is over the
 cap, the oldest purgeable build goes: its manifest and signature, then the content files no
 build left lists.

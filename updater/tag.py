@@ -19,8 +19,8 @@ The build must be in the tree and not withdrawn. The tags document is rewritten 
 serial higher (lib/updater_tree.py next_serial) and signed with the online key; the tree as it would be is checked with
 the validator first, and nothing is written if that fails. Then the tree is snapshotted and
 the tags document written, and the download archives of every tag that moved are written
-from the tree (lib/updater_downloads.py): downloads/updater/mmc-<tag>-<platform>, and for Stable also
-downloads/updater/archive/<build>/, which keeps it for good. A Stable build that has no archive yet
+from the tree (lib/updater_downloads.py): downloads/MultiMC-<variant> for Stable, MultiMC-<tag>-<variant>
+for the others, and for Stable also downloads/archive/<version>/, which keeps it for good. A Stable build that has no archive yet
 (the first one, set by updater/deploy.py) gets one when Stable moves on.
 
 Naming the build a tag already has changes no tags; it writes that tag's download archives
@@ -108,7 +108,7 @@ def main():
             log("the tree with these tags would be valid: %s" % summary)
         archives = [b for b in sorted({tags["stable"], old_stable}) if "stable" in moved]
         archives = [b for b in archives if b == tags["stable"] or b not in downloads.archived_builds(settings)]
-        log("download archives to write: %s" % ", ".join(["mmc-%s-*" % tag for tag in moved]
+        log("download archives to write: %s" % ", ".join(["%s's" % tag for tag in moved]
                                                          + ["archive/%d/" % b for b in archives]))
         report = {"serial": current["serial"], "before": current["tags"], "after": tags, "moved": moved,
                   "archives": archives, "dry_run": args.dry_run}

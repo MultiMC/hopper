@@ -1,10 +1,15 @@
-"""The download archives that go with the new updater's tags, in the files tree's
-downloads/updater/, apart from the current layout's downloads (downloads/mmc-develop-*, and the
-mmc-stable-* frozen since 2023, which the website links and which must not change):
+"""The download archives that go with the new updater's tags, in the files tree's downloads/,
+next to the current layout's (downloads/mmc-develop-*, and the mmc-stable-* frozen since 2023,
+which must not change; every name here starts with MultiMC-, so none of them collide):
 
-    downloads/updater/mmc-<tag>-<platform>.<ext>     a tag's build (latest, testing, stable)
-    downloads/updater/archive/<build>/mmc-<build>-<platform>.<ext>
+    downloads/MultiMC-<variant>.<ext>                Stable's build: what the website offers
+    downloads/MultiMC-<tag>-<variant>.<ext>          Testing's and Latest's
+    downloads/archive/<version>/MultiMC-<version>-<variant>.<ext>
                                                      every build that has been Stable
+
+<variant> is the variant ID (UpdaterFormats.md: linux-x86_64-qt5, windows-x86-qt5.15, ...),
+<version> the build's version (5.0.5123), or its build number for builds made before versions
+had one (decided 2026-11-14, the Design repo's Updater.md, The cutover).
 
 They are made from the updater's tree itself (the build manifest and its content files), so a
 download holds exactly what Launchers install, and the same build always gives the same bytes:
@@ -31,20 +36,58 @@ import updater_formats as formats
 TEMPORARY = ".tmp-"
 
 
+PREFIX = "MultiMC-"
+
+
 def downloads_dir(settings):
-    return Path(settings["FILES_ROOT"]) / "downloads" / "updater"
+    return Path(settings["FILES_ROOT"]) / "downloads"
 
 
-def archive_dir(settings, build):
-    return downloads_dir(settings) / "archive" / str(build)
+def tag_stem(tag, variant):
+    """A tag's download, relative to downloads/, without the extension."""
+    return PREFIX + variant if tag == "stable" else "%s%s-%s" % (PREFIX, tag, variant)
+
+
+def archive_label(doc):
+    """The name of a build's archive directory: its version, or its build number."""
+    return doc.get("version") or str(doc["build"])
+
+
+def archive_stem(doc, variant):
+    """A build's archived download, relative to downloads/, without the extension."""
+    label = archive_label(doc)
+    return "archive/%s/%s%s-%s" % (label, PREFIX, label, variant)
+
+
+def archive_dir(settings, doc):
+    return downloads_dir(settings) / "archive" / archive_label(doc)
+
+
+def label_build(label):
+    """The build number an archive directory's name stands for, or None for any other name."""
+    if label.isdigit():
+        return int(label)
+    m = formats.BUILD_VERSION.fullmatch(label)
+    return int(m.group(1)) if m else None
+
+
+def archive_dirs(settings):
+    """{build: directory} of the archives in downloads/archive/: only directories named like one,
+    holding MultiMC-* files (anything else there isn't ours)."""
+    directory = downloads_dir(settings) / "archive"
+    if not directory.is_dir():
+        return {}
+    found = {}
+    for p in directory.iterdir():
+        build = label_build(p.name)
+        if build is not None and p.is_dir() and any(p.glob(PREFIX + "*")):
+            found[build] = p
+    return found
 
 
 def archived_builds(settings):
     """The builds that have been Stable: those with an archive."""
-    directory = downloads_dir(settings) / "archive"
-    if not directory.is_dir():
-        return set()
-    return {int(p.name) for p in directory.iterdir() if p.is_dir() and p.name.isdigit()}
+    return set(archive_dirs(settings))
 
 
 def platform_of(variant):
@@ -55,43 +98,45 @@ def platform_of(variant):
 
 
 def write_tag(settings, tree, tag, build):
-    """downloads/updater/mmc-<tag>-<platform> for every platform of the build; a platform's archive
-    from an earlier build that this one lacks is removed. Returns the names written."""
+    """The tag's download for every variant of the build; a variant's download from an earlier
+    build that this one lacks is removed. Returns the names written."""
     doc = tree.build(build)
     directory = downloads_dir(settings)
-    written = write_archives(tree, doc, directory, "mmc-%s-" % tag)
+    written = write_archives(tree, doc, directory, lambda variant: tag_stem(tag, variant))
     for p in common.PLATFORMS.values():
-        stale = directory / ("mmc-%s-%s.%s" % (tag, p.name, p.archive))
+        stale = directory / ("%s.%s" % (tag_stem(tag, p.variant), p.archive))
         if p.variant not in doc["variants"] and stale.exists():
-            common.emit("build %d has no %s, removing %s" % (build, p.name, stale.name))
+            common.emit("build %d has no %s, removing %s" % (build, p.variant, stale.name))
             stale.unlink()
     return written
 
 
 def write_archive(settings, tree, build):
-    """downloads/updater/archive/<build>/, for a build that is or has been Stable."""
-    return write_archives(tree, tree.build(build), archive_dir(settings, build), "mmc-%d-" % build)
+    """downloads/archive/<version>/, for a build that is or has been Stable."""
+    doc = tree.build(build)
+    return write_archives(tree, doc, downloads_dir(settings), lambda variant: archive_stem(doc, variant))
 
 
 def remove_archive(settings, build):
-    directory = archive_dir(settings, build)
-    if directory.exists():
-        shutil.rmtree(directory)
-        return True
-    return False
+    directory = archive_dirs(settings).get(build)
+    if directory is None:
+        return False
+    shutil.rmtree(directory)
+    return True
 
 
-def write_archives(tree, doc, directory, prefix):
-    directory.mkdir(parents=True, exist_ok=True)
-    for leftover in directory.glob(TEMPORARY + "*"):
-        leftover.unlink()
+def write_archives(tree, doc, downloads, stem):
+    """Each variant's download at downloads/<stem(variant)>.<ext>."""
     mtime = int(datetime.datetime.strptime(doc["built"], "%Y-%m-%dT%H:%M:%SZ")
                 .replace(tzinfo=datetime.timezone.utc).timestamp())
     written = []
     for variant_id, variant in sorted(doc["variants"].items()):
         p = platform_of(variant_id)
-        target = directory / ("%s%s.%s" % (prefix, p.name, p.archive))
-        temporary = directory / (TEMPORARY + target.name)
+        target = downloads / ("%s.%s" % (stem(variant_id), p.archive))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        for leftover in target.parent.glob(TEMPORARY + "*"):
+            leftover.unlink()
+        temporary = target.parent / (TEMPORARY + target.name)
         entries = bundle_entries(tree, p.bundle, variant)
         if p.archive == "zip":
             write_zip(temporary, entries, mtime)

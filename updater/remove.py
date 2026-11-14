@@ -15,7 +15,7 @@ Written in the format's removal order: the tags document first, then the build's
 and signature, then the content files no other build lists. The tree as it would be is
 checked with the validator first, and nothing changes if that fails; the tree is
 snapshotted before. Then the download archives of the tags that moved are written again, and
-the build's own archive (downloads/updater/archive/<build>/, if it was ever Stable) is removed.
+the build's own archive (downloads/archive/<version>/, if it was ever Stable) is removed.
 Nothing is published: files/publish.py does that, and removes the files from the files
 server and the bucket.
 
@@ -88,7 +88,7 @@ def main():
                   "files": len(freed), "bytes": tree.freed_size(changes, [build]), "archive_removed": archived,
                   "dry_run": args.dry_run}
         if args.dry_run:
-            log("download archives to write again: %s%s" % (", ".join("mmc-%s-*" % tag for tag in moved) or "none",
+            log("download archives to write again: %s%s" % (", ".join("%s's" % tag for tag in moved) or "none",
                                                            "; archive/%d/ to remove" % build if archived else ""))
             log("dry run: nothing changed")
             if args.json:
@@ -108,7 +108,7 @@ def main():
             for path in downloads.write_tag(settings, tree, tag, tags[tag]):
                 log("wrote %s" % path.relative_to(settings["FILES_ROOT"]))
         if downloads.remove_archive(settings, build):
-            log("removed downloads/updater/archive/%d/" % build)
+            log("removed build %d's archive in downloads/archive/" % build)
     log("build %d is withdrawn and removed from %s (not published)" % (build, tree.root))
     if args.json:
         print(json.dumps(report))
