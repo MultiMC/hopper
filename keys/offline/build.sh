@@ -72,8 +72,9 @@ iso_version="${date//\//-}"
 file_permissions+=(["/root/hopper"]="0:0:700")
 EOF
 
-# The login message
+# The login message, and the hostname (so the prompt says which machine this is)
 cp -a "$here/airootfs/." "$profile/airootfs/"
+echo hopper-offline > "$profile/airootfs/etc/hostname"
 
 # No networking: mask what could bring it up; pcscd at boot
 systemd=$profile/airootfs/etc/systemd/system
@@ -89,6 +90,11 @@ ln -sf /usr/lib/systemd/system/pcscd.socket "$systemd/sockets.target.wants/pcscd
 mkdir -p "$profile/airootfs/root/hopper"
 git -C "$hopper" archive HEAD | tar -x -C "$profile/airootfs/root/hopper"
 git -C "$hopper" rev-parse HEAD > "$profile/airootfs/root/hopper/COMMIT"
+# archiso makes every file in the image 0644 unless file_permissions names it: keep the
+# checkout's executable bits (the scripts in keys/, updater/, ...)
+( cd "$profile/airootfs" && find root/hopper -type f -perm -u+x ) | sort | while read -r path; do
+    echo "file_permissions+=([\"/$path\"]=\"0:0:755\")"
+done >> "$profile/profiledef.sh"
 
 mkarchiso -v -w "$work" -o "$out" "$profile"
 echo "built $(ls "$out"/*.iso); hopper $(cat "$profile/airootfs/root/hopper/COMMIT")"

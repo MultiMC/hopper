@@ -1050,25 +1050,34 @@ it from its stick), decrypt it, and check it gives the same public key:
 A typing mistake in the base64 makes `age` refuse the file rather than give another key.
 
 **Onto its YubiKey**: reset PIV, set a new PIN, PUK and management key, import the key into
-the signature slot, and check it's the same key:
+the signature slot, and check it's the same key. Every signature then needs the PIN and a
+touch: a finger on the YubiKey's gold contact while its light blinks, about 15 seconds
+(decided 2026-11-14), so nothing can sign with it while it's merely plugged in, on whatever
+machine signs a renewal. The touch policy is set at import and can't be changed without
+importing again (from the paper).
 
     ykman piv reset
     ykman piv access change-pin
     ykman piv access change-puk
     ykman piv access change-management-key --generate --protect
-    ykman piv keys import 9c root1.pem
-    ykman piv keys info 9c                      # Algorithm ED25519, Origin IMPORTED
+    ykman piv keys import --touch-policy always 9c root1.pem
+    ykman piv keys info 9c                      # ED25519, IMPORTED, PIN ALWAYS, touch ALWAYS
     ykman piv keys export 9c - | openssl pkey -pubin -outform DER | tail -c 32 | xxd -p -c 32   # = root1.pub
 
 A key can't be read back out of the slot; only the paper (or the `age` copy) can restore it
 onto a new YubiKey.
+
+The management key (needed to change what's in PIV, not to sign) is random and kept on the
+YubiKey itself, readable with the PIN (`--protect`): nobody sees it or writes it down, and
+`ykman` asks for the PIN when it needs it. A forgotten PIN is unblocked with the PUK; with
+both lost, `ykman piv reset` and an import from the paper.
 
 **The first keys document** (offline, or online with the public keys only), signed by both
 root keys:
 
     keys/write-keys.py keys/1.json --expires <about two years ahead> \
         --root root1.pub --root root2.pub --online online1.pub
-    keys/sign.py keys/1.json yubikey:9c         # root1's YubiKey plugged in
+    keys/sign.py keys/1.json yubikey:9c         # root1's YubiKey plugged in: PIN, then touch it
     keys/sign.py keys/1.json yubikey:9c         # then root2's
     keys/verify.py keys keys/1.json --roots root1.pub root2.pub
 
@@ -1108,6 +1117,16 @@ output dir also gets the profile it was built from, to inspect.
 Try it before the ceremony, with throwaway keys and a spare YubiKey: boot it (in QEMU with
 the YubiKey passed through, or from a stick), check `ip link`, run the whole ceremony
 through, `keys/verify.py` included, and reset the YubiKey's PIV afterwards.
+
+Tried 2026-11-14 (archive date 2026-11-13, hopper `05deb4e`), in QEMU with no disk and a
+YubiKey 5 NFC (firmware 5.7.1) passed through: only `lo` up; three keys made; the `age`
+paper copy restored to the same key, and a corrupted copy was refused; root1 imported into
+slot 9c (ED25519, IMPORTED, the same public key); `keys/1.json` written, signed with
+`yubikey:9c` and root2's file, and accepted by `keys/verify.py`. Found: archiso makes every
+file 0644, so the scripts weren't executable (`build.sh` now keeps their executable bits),
+and the hostname was `archlinux` (now `hopper-offline`); both fixed after that image.
+Then root1 imported again with `--touch-policy always`: a signature waited for the touch, and
+went through with it. (That image's `sign.py` didn't print the prompt yet.)
 
 ## The files2 test system (`config/files2.env`)
 

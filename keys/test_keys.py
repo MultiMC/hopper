@@ -203,6 +203,10 @@ class YubiKeyNames(unittest.TestCase):
     """How keys/sign.py tells a YubiKey slot from a key file; signing itself needs a device."""
 
     def test_names(self):
+        self.assertTrue(yubikey.needs_touch("ALWAYS"))
+        self.assertTrue(yubikey.needs_touch("CACHED"))
+        self.assertFalse(yubikey.needs_touch("NEVER"))
+        self.assertFalse(yubikey.needs_touch("DEFAULT"))
         self.assertTrue(yubikey.is_key("yubikey:9c"))
         self.assertFalse(yubikey.is_key("root1.pem"))
         self.assertEqual(yubikey._parse("yubikey:9c"), (None, 0x9C))
