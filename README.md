@@ -1006,17 +1006,17 @@ a known version 2 or 1 (not newer), and with another key pinned in place of a ro
 ### Production's keys: the ceremony
 
 Not done yet; it comes before the bridge build (`Updater.md`, Before the cutover). Written
-2026-11-09. Still to decide: the paper format (marked below). Where the root keys and the
-passphrases are kept, and who else holds a copy, is decided and recorded privately, never
-in this repo.
+2026-11-09, gone through again 2026-11-14 (the paper is the `age` file). Where the root keys
+and the passphrases are kept, and who else holds a copy, is decided and recorded privately,
+never in this repo.
 
 **Before**
 
-- The offline machine: a live USB booted with networking off (no cable, Wi-Fi off; `ip
-  link` shows nothing up but `lo`). Only making the root keys, putting them on the
-  YubiKeys and the paper copies touch private keys there: `openssl`, `xxd`, `ykman` and
-  pcscd (and `age` for a stick copy). Running the scripts there as well needs Python 3.12+
-  (Tails, for example, has 3.11): check the live image beforehand, with throwaway keys.
+- The offline machine: the live image made by `keys/offline/build.sh` (below, "The offline
+  image"), booted from a USB stick, with no cable (it has no networking anyway; `ip link`
+  shows nothing up but `lo`). It has everything the ceremony runs, this checkout's `keys/`
+  scripts included, and is the kept working copy of those tools. Try it beforehand with
+  throwaway keys and a YubiKey.
 - On a stick: a copy of this checkout at a known commit (for the scripts, if they run
   there), and `online1.pub` (next step).
 - The online key, on the build server as hopper, like files2's: only its public key leaves
@@ -1026,31 +1026,28 @@ in this repo.
       ~/hopper/keys/make-key.py online1
 
 - Two YubiKeys (5 series, firmware 5.7 or newer, which `ykman info` shows), one per root
-  key, and paper. The YubiKey holds the root key for signing; the paper is its backup. An
-  `age`-encrypted copy on a stick is optional now. The offline machine then also needs
-  `ykman` (yubikey-manager) and pcscd.
+  key, and paper. The YubiKey holds the root key for signing; the paper is its backup: the
+  `age`-encrypted key, printed. The same file on a stick of its own is quicker to restore
+  from than typing.
 
 **Offline, for each of root1 and root2**
 
     keys/make-key.py root1                      # or: openssl genpkey -algorithm ed25519 -out root1.pem
-    age -p -o root1.pem.age root1.pem           # to its own stick; the passphrase is kept apart from it
+    age -p -a -o root1.pem.age root1.pem        # armored: text to print; the passphrase is kept apart from it
 
-The paper copy is the private key's 32 bytes as 64 hex digits, with the first 8 hex digits
-of their SHA-256 as a check (format to decide: this line in plain, or the `age` file):
+The paper copy (decided 2026-11-14) is `root1.pem.age` printed: about eight lines of
+base64 between `-----BEGIN AGE ENCRYPTED FILE-----` and its end line. On the paper too: the
+first 8 hex digits of the public key's SHA-256, as a check, and the restore steps.
 
-    openssl pkey -in root1.pem -outform DER | tail -c 32 | xxd -p -c 32
-    openssl pkey -in root1.pem -outform DER | tail -c 32 | sha256sum | cut -c1-8
+    openssl pkey -in root1.pem -pubout -outform DER | tail -c 32 | sha256sum | cut -c1-8
 
-**Restore test, before trusting the paper**: type the line back in from the paper, rebuild
-the key, and check it gives the same public key (the restore steps go on the paper too):
+**Restore test, before trusting the paper**: type the file back in from the paper (or copy
+it from its stick), decrypt it, and check it gives the same public key:
 
-    printf '302e020100300506032b657004220420%s' <64 hex digits> | xxd -r -p \
-        | openssl pkey -inform DER -out restored.pem
+    age -d -o restored.pem root1.pem.age        # asks for the passphrase
     openssl pkey -in restored.pem -pubout -outform DER | tail -c 32 | xxd -p -c 32   # = root1.pub
 
-If there is an `age` copy, decrypt it from the stick once, and compare. (Checked 2026-11-09
-with a throwaway key: the line restores the same key, which signs, and its public key
-matches.)
+A typing mistake in the base64 makes `age` refuse the file rather than give another key.
 
 **Onto its YubiKey**: reset PIV, set a new PIN, PUK and management key, import the key into
 the signature slot, and check it's the same key:
@@ -1081,14 +1078,36 @@ the YubiKeys the same way, on any machine: the keys never leave them.
 
 **After**
 
-- `config/keys/production/1.json` and `.sig` into this repo; production's settings get
-  `UPDATER_ROOT=updater`, `UPDATER_KEYS`, `UPDATER_ONLINE_KEY` (the build server's
-  `~/keys/production/online1.pem`) and `UPDATER_ROOT_KEYS` (the two root public keys). The
-  gate then checks that production builds pin exactly those. This turns on the shadow tree
-  in production.
-- A table of the public keys here, as for files2.
-- A reminder about 18 months ahead: the next keys document is signed before the expiry,
-  which also checks that both YubiKeys still sign and both PINs are still known.
+- `config/keys/production/1.json` and `.sig` into this repo, and a table of the public keys
+  here, as for files2. Production's settings don't change yet: `UPDATER_ROOT=updater`,
+  `UPDATER_KEYS`, `UPDATER_ONLINE_KEY` (the build server's `~/keys/production/online1.pem`),
+  `UPDATER_ROOT_KEYS` (the two root public keys) and `UPDATER_VERSION=2` are set together,
+  with the freeze ("The freeze and the bridge"); the keys alone with updater 1 are refused.
+- The renewal: the next keys document is signed about 18 months ahead, before the expiry,
+  which also checks that both YubiKeys still sign and both PINs are still known. Nothing
+  reminds anyone yet (G3 waits for a way of telling the maintainer that can't be missed):
+  put the date in the TODO list and the calendar.
+
+### The offline image (`keys/offline/`)
+
+    sudo keys/offline/build.sh <output dir>
+
+A live Arch Linux ISO for the ceremony, built with archiso from its baseline profile plus
+what the ceremony runs (`keys/offline/packages.x86_64`: openssl, tinyxxd, age, Python,
+yubikey-manager, pcsclite and ccid) and this checkout's `HEAD` in `/root/hopper` (its commit
+in `COMMIT` next to it). It has no networking: nothing that sets it up is installed, and
+systemd's network services are masked; pcscd starts at boot, so `ykman` sees a YubiKey.
+
+The packages come from the Arch Linux Archive as of the date in `keys/offline/archive-date`,
+not from the mirrors, so building it again gives the same packages. The ISO is the kept
+working copy of the ceremony's tools: build it once, keep it with the keys (it holds nothing
+secret), and boot the same image for the ceremony and every renewal. Move the date only on
+purpose, and try the new image before relying on it. Building needs archiso and root; the
+output dir also gets the profile it was built from, to inspect.
+
+Try it before the ceremony, with throwaway keys and a spare YubiKey: boot it (in QEMU with
+the YubiKey passed through, or from a stick), check `ip link`, run the whole ceremony
+through, `keys/verify.py` included, and reset the YubiKey's PIV afterwards.
 
 ## The files2 test system (`config/files2.env`)
 

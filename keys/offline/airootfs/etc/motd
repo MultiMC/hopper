@@ -1,0 +1,7 @@
+
+  hopper's offline image, for the updater's key ceremony (hopper README, "Production's keys:
+  the ceremony"). It has no networking; check with `ip link`: only lo may be UP.
+
+  hopper's checkout is in /root/hopper (its commit in /root/hopper/COMMIT). pcscd runs, so
+  `ykman info` sees a plugged-in YubiKey.
+

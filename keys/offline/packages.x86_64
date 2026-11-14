@@ -1,0 +1,9 @@
+# Added to archiso's baseline profile (build.sh): what the key ceremony runs. Nothing for
+# networking: the image has no network manager, no DHCP client, no wireless tools.
+age
+ccid
+openssl
+pcsclite
+python
+tinyxxd
+yubikey-manager
