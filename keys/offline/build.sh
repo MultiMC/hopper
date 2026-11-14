@@ -17,7 +17,8 @@
 # - pcscd started at boot, for the YubiKeys;
 # - this hopper checkout's HEAD in /root/hopper (git archive: committed files only), its
 #   commit in /root/hopper/COMMIT;
-# - airootfs/ here (the login message).
+# - no radios: Bluetooth and Wi-Fi drivers can't load (airootfs/etc/modprobe.d);
+# - airootfs/ here (the login message, the module rules).
 #
 # The output dir gets the ISO, the profile it was built from (to inspect), and the work dir is
 # removed afterwards.

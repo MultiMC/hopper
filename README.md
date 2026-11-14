@@ -1112,7 +1112,9 @@ A live Arch Linux ISO for the ceremony, built with archiso from its baseline pro
 what the ceremony runs (`keys/offline/packages.x86_64`: openssl, tinyxxd, age, Python,
 yubikey-manager, pcsclite and ccid) and this checkout's `HEAD` in `/root/hopper` (its commit
 in `COMMIT` next to it). It has no networking: nothing that sets it up is installed, and
-systemd's network services are masked; pcscd starts at boot, so `ykman` sees a YubiKey.
+systemd's network services are masked; no radios either, since Bluetooth and Wi-Fi drivers
+can't load (without the firmware, Bluetooth filled the console with errors on a real
+machine). pcscd starts at boot, so `ykman` sees a YubiKey.
 
 The packages come from the Arch Linux Archive as of the date in `keys/offline/archive-date`,
 not from the mirrors, so building it again gives the same packages. The ISO is the kept

@@ -1,0 +1,13 @@
+{
+  "expires": "2028-12-01T00:00:00Z",
+  "format": 1,
+  "online_keys": [
+    "37659576a0ae1faeef47f3207e14c7dbfaabf15536e13e0caef1b700fd845430"
+  ],
+  "root_keys": [
+    "f0b61b217d3e1f419401fdfe2bc4865424e9ee6a8be60055b4f14b37d0c19540",
+    "21f1854affb3a9a83d911ef5aab1d077fba0d5927725b490efba56aaff524398"
+  ],
+  "type": "keys",
+  "version": 1
+}
