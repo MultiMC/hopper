@@ -1278,7 +1278,8 @@ AWS S3: `website/publish.py` makes the test bucket (`WEBSITE_TEST_TARGET`, serve
 from Cloudflare's cache, and records the release in `RELEASES_DIR/website-test.live`.
 Laminar's job `website-production` does this for every new commit. `--production` promotes the release
 that is on test to `WEBSITE_TARGET` (`WEBSITE_URL`), so production gets exactly the files
-checked on test; it's run by hand. The release cleanup never removes a release that is live
+checked on test; it's started by hand, as Laminar's job `website-promote-production` (the
+web view's Start…, or `laminarc queue website-promote-production`). The release cleanup never removes a release that is live
 (`*.live`). The website is production's only (`WEBSITE_REPO` is empty in `config/files2.env`).
 
 ## Linux packages (`packages/build.py`, `packages/aur.py`)
@@ -1409,7 +1410,7 @@ Queues a run with the reason "by hand: <reason>", the reason being required, and
 `{"run": "<job>:<number>"}`. Only jobs `runs.py` knows to be startable without parameters
 (`STARTABLE`, by the name before the setup): `launcher`, `translations`, `website`,
 `packages` and `template`, which take `COMMIT` (7 to 40 hex digits; their scripts check it's
-on the branch), and `patrons`, `verify` and `meta`, which don't. Not `tag`, `remove` and
+on the branch), and `patrons`, `verify`, `meta` and `website-promote`, which don't. Not `tag`, `remove` and
 `prune`: they need a serial, and `daemon/builds.py` checks them first. The overview's JSON
 says, for each job, whether it can be started and takes a commit (`start`).
 
@@ -1480,6 +1481,8 @@ watches the directory it found when it started. Its jobs so far:
   Since the cutover (2026-11-15) `launcher-production` has the `TRIGGER` and
   `launcher-files2` doesn't: files2 builds only when queued by hand.
 - `template-production`: the translations template (below).
+- `website-promote-production`: puts the website release on test on production
+  (`website/publish.py --production`); started by hand.
 - `verify-production`, `verify-files2`: every night, check the newest incremental Launcher
   release against a clean build of its commit (see "Checking incremental releases").
 
@@ -1547,8 +1550,8 @@ the Packaging repo's `master`. Their `.run` are links to one script,
   (before it, `files/deploy.py` and a publish of that came first).
 - translations: `translations/build.py`, `files/deploy.py`, `files/publish.py`
 - patrons: `patrons/update.py`, `files/deploy.py`, `files/publish.py`
-- website: `website/build.py`, `website/publish.py` (to test; production is still promoted
-  by hand, `website/publish.py --production`)
+- website: `website/build.py`, `website/publish.py` (to test; production is promoted by
+  hand, with the job `website-promote-production`)
 - packages: `packages/build.py`, `files/deploy.py` (only a version not published yet),
   `files/publish.py`, `packages/aur.py --if-configured` (after the publish: the AUR's
   `PKGBUILD` downloads the source tarball)

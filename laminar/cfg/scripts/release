@@ -14,7 +14,7 @@
 #                 yet), files/publish.py, packages/aur.py (when that release deployed it; no
 #                 AUR key: skipped)
 #   website       website/build.py [$COMMIT], website/publish.py (to test; production is
-#                 promoted by hand: website/publish.py --production)
+#                 promoted by hand: the job website-promote-production)
 #
 # Launcher builds go into the new updater's tree only; the old update layout took its last
 # build at the cutover (files/deploy.py refuses them, files/publish.py refuses changes to it).

@@ -9,7 +9,8 @@ WEBSITE_TEST_TARGET. Laminar's job website-production does this for every new co
 WEBSITE_BRANCH.
 
 --production: the release on test (default; RELEASES_DIR/website-test.live names it) goes to
-WEBSITE_TARGET, so production gets exactly the files checked on test. Run by hand.
+WEBSITE_TARGET, so production gets exactly the files checked on test. Run by hand, or by
+Laminar's job website-promote-production (started by hand, e.g. the web view's Start…).
 
 The bucket becomes an exact copy of the release's site/ (rclone sync: new and changed files
 uploaded, files not in the release removed), then the release's URLs and those of removed

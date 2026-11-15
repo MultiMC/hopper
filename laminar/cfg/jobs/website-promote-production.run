@@ -1,0 +1,15 @@
+#!/bin/bash -eu
+# Promotes the website: what's on test (test.multimc.org, which website-production publishes
+# for every new commit) goes to production (multimc.org), exactly the files checked on test.
+# website/publish.py --production; it records the release as live on production.
+# Started by hand, when test looks right.
+#
+#     laminarc queue website-promote-production
+
+config=config/${JOB##*-}.env
+
+# This file is in the hopper checkout's laminar/cfg/jobs (~/laminar/cfg is a link to it)
+cd "$(dirname "$(realpath "$0")")/../../.."
+[[ -f $config ]] || { echo "no settings file $config for job $JOB" >&2; exit 1; }
+
+website/publish.py --config "$config" --production

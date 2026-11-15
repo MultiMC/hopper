@@ -38,7 +38,7 @@ JOB_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 COMMIT = re.compile(r"^[0-9a-f]{7,40}$")
 # The jobs that can be started by hand, by their name before the setup: whether they take COMMIT
 STARTABLE = {"launcher": True, "translations": True, "website": True, "packages": True, "template": True,
-             "patrons": False, "verify": False, "meta": False}
+             "patrons": False, "verify": False, "meta": False, "website-promote": False}
 
 
 def startable(job):
