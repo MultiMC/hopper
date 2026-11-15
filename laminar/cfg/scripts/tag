@@ -1,5 +1,8 @@
 #!/bin/bash -eu
 # Moves the new updater's tags and publishes them: updater/tag.py, then files/publish.py.
+# When Testing or Stable moved and the setup has a template job (template-<setup>,
+# production only), it queues that: the translations template follows Testing, which Stable
+# pulls along (a failure to queue is only logged).
 # daemon/builds.py queues it, the web view's Confirm among others; $SERIAL makes it refuse if
 # the tags have changed since they were checked. Each job (tag-<setup>) is a link to this
 # file; its name says the setup.
@@ -19,3 +22,10 @@ if [[ -n ${TESTING:-} ]]; then moves+=(testing "$TESTING"); fi
 if [[ -n ${STABLE:-} ]]; then moves+=(stable "$STABLE"); fi
 updater/tag.py --config "$config" --serial "$SERIAL" "${moves[@]}"
 files/publish.py --config "$config"
+
+setup=${JOB##*-}
+if [[ -n ${TESTING:-}${STABLE:-} && -e "$LAMINAR_HOME/cfg/jobs/template-$setup.run" ]]; then
+    # laminarc reaches laminard by LAMINAR_BIND_RPC, from laminar.service's environment
+    LAMINAR_REASON="after $JOB:$RUN" "$LAMINAR_HOME/bin/laminarc" queue "template-$setup" \
+        || echo "queueing template-$setup failed" >&2
+fi

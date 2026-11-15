@@ -20,10 +20,9 @@
 # build at the cutover (files/deploy.py refuses them, files/publish.py refuses changes to it).
 # A setup without the new tree (UPDATER_ROOT empty) skips it with a log line (--if-configured).
 #
-# then daemon/releases.py cleanup (housekeeping; a failure is only logged). After a
-# published launcher-production, it queues template-production (the translations template)
-# for the same commit; a failure to queue is only logged. $COMMIT
-# defaults to the head of the branch. The release stays in RELEASES_DIR (its cleanup keeps
+# then daemon/releases.py cleanup (housekeeping; a failure is only logged). $COMMIT
+# defaults to the head of the branch. (The translations template follows Testing: the tag job
+# queues it, cfg/scripts/tag.) The release stays in RELEASES_DIR (its cleanup keeps
 # the newest); its path, manifest.json and build logs (the launcher's: one per platform,
 # and its compatibility reports) go to $ARCHIVE.
 #
@@ -80,9 +79,4 @@ case $stream in
         files/deploy.py --config "$config" "$release"
         files/publish.py --config "$config" ;;
 esac
-if [[ $JOB == launcher-production ]]; then
-    # laminarc reaches laminard by LAMINAR_BIND_RPC, from laminar.service's environment
-    LAMINAR_REASON="after $JOB:$RUN" "$LAMINAR_HOME/bin/laminarc" queue template-production ${COMMIT:+"COMMIT=$COMMIT"} \
-        || echo "queueing template-production failed" >&2
-fi
 daemon/releases.py --config "$config" cleanup || echo "the release cleanup failed (housekeeping only)" >&2

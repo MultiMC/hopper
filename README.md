@@ -1217,9 +1217,11 @@ build at a time, shared with `launcher/release-build.py`. Translations releases 
 
     translations/template.py [--config FILE] [--dry-run] [launcher commit]
 
-Laminar's job `template-production` runs it after each production Launcher release (below); TeamCity's "Update Template" job was only run by hand. Checks out the Translations repo's
-`TRANSLATIONS_BRANCH` with the Launcher (default: the head of `LAUNCHER_BRANCH`, with
-submodules) in its `src/`, in `RELEASES_DIR/template-<time>/`; runs the repo's `update.py`
+Laminar's job `template-production` runs it when production's Testing or Stable moves
+(below); TeamCity's "Update Template" job was only run by hand. Checks out the Translations repo's
+`TRANSLATIONS_BRANCH` with the Launcher (default: the commit of the new updater's Testing
+build, which is Stable's or newer; the head of `LAUNCHER_BRANCH` for a setup without a tree;
+with submodules) in its `src/`, in `RELEASES_DIR/template-<time>/`; runs the repo's `update.py`
 in `IMAGE_TRANSLATIONS` without network; if `template.pot` changed, commits it ("Update
 translation template for latest MultiMC code") and pushes it to `TRANSLATIONS_PUSH_URL`
 with the deploy key `TRANSLATIONS_DEPLOY_KEY` (outside this repo; GitHub's host key must
@@ -1568,14 +1570,15 @@ and the daemon was retired.
 
 `cfg/jobs/template-production.run` runs `translations/template.py` with
 `config/production.env`, then `daemon/releases.py cleanup`. It has no `TRIGGER`:
-`launcher-production`, once it has published, queues it with the commit it released
-(`cfg/scripts/release`; a failure to queue is only logged, the release stands). So the
-template follows what production ships, not every commit. A release that changes no
+`tag-production` queues it whenever it moves Testing or Stable (`cfg/scripts/tag`; a failure
+to queue is only logged, the tags stand), and it takes the template from Testing's build.
+So translators get new strings ahead of Stable, not with every build (since 2026-11-15;
+before, every production release queued it, and Crowdin got every change). A release that changes no
 translatable string changes nothing (the run says "identical"). There's only the one: the
 template goes to the Translations repo, which every setup builds from, so files2 has none.
 It waits for the release lock like the releases (`HOPPER_LOCK_WAIT=3600`). If Crowdin pushes
 to the Translations branch between the mirror update and the push, the push fails, nothing
-changes and the run fails; the next release tries again, or
+changes and the run fails; the next tag move tries again, or
 `laminarc queue template-production [COMMIT=<sha>]`. Each run leaves an 87 MB work directory in
 `RELEASES_DIR` (the Launcher checkout with submodules), kept like the releases: the newest
 `RELEASES_KEEP`.
