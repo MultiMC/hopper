@@ -28,7 +28,7 @@ Testing's and Stable's, and Stable's archive. Nothing is published: files/publis
 publishes the tree and the downloads.
 
 Refuses a release that isn't releasable, isn't a Launcher build, was built for another
-setup (its UPDATER_BASE, or its updater and pinned root keys), lacks a platform's requirements, or whose build number isn't
+setup (the first of its FILES_MIRRORS, or its updater and pinned root keys), lacks a platform's requirements, or whose build number isn't
 higher than the tree's Latest or was withdrawn. A bundle with anything the format can't
 express is refused too: a mode other than 0644 or 0755, a hard link, a special file, an
 empty directory. The current layout (update/, files/, the mmc-* downloads) isn't touched.
@@ -87,9 +87,11 @@ def main():
     manifest = common.read_release(release)
     if "kind" in manifest:
         common.die("%s is a %s release; only Launcher builds go into the updater tree" % (release, manifest["kind"]))
-    if manifest.get("updater_base") != settings["UPDATER_BASE"]:
-        common.die("the release updates from %s, this setup is %s (wrong --config?)"
-                   % (manifest.get("updater_base"), settings["UPDATER_BASE"]))
+    # the files site, by its first base URL; its copies may change from build to build
+    built_site = (manifest.get("files_mirrors") or ["not recorded"])[0]
+    if built_site != settings["FILES_MIRRORS"].split()[0]:
+        common.die("the release's files site is %s, this setup's is %s (wrong --config?)"
+                   % (built_site, settings["FILES_MIRRORS"].split()[0]))
     common.check_release_updater(settings, manifest, release)
     build = manifest["build_number"]
     platforms = [common.platform(name) for name in manifest["platforms"]]

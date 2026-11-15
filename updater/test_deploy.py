@@ -33,7 +33,7 @@ TEST_DIR = Path(os.environ.get("HOPPER_TEST_DIR") or common.STATE)
 ON_BTRFS = TEST_DIR.is_dir() and subprocess.run(["stat", "-f", "-c", "%T", str(TEST_DIR)], capture_output=True,
                                                  text=True).stdout.strip() == "btrfs"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
-# FILES_MIRRORS: the files site, then its copy; UPDATER_BASE follows from the first
+# FILES_MIRRORS: the files site, then its copy
 MIRRORS = "https://files.example.org/ https://bucket.example.org/"
 
 
@@ -72,7 +72,7 @@ MACOS_LINKS = [("MultiMC.app/Contents/Frameworks/QtCore.framework/Versions/Curre
                ("MultiMC.app/Contents/Frameworks/QtCore.framework/QtCore", "Versions/Current/QtCore")]
 
 
-def make_release(directory, build, linux=None, requires=None, updater_base="https://files.example.org/update/",
+def make_release(directory, build, linux=None, requires=None, files_mirrors=MIRRORS.split(),
                  updater={"version": 2, "root_keys": []}):
     """A release as launcher/release-build.py writes it, for lin64 and osx64-5.15.2. updater=None:
     one from before the manifest recorded the updater, so with updater 1."""
@@ -90,7 +90,7 @@ def make_release(directory, build, linux=None, requires=None, updater_base="http
             tar_add(tar, name, link=target)
     manifest = {
         "branch": "develop", "build_number": build, "built_at": "2026-11-01T20:55:12Z", "commit": COMMIT,
-        "mode": "clean", "releasable": True, "updater_base": updater_base, "version_name": "0.7.%d" % build,
+        "mode": "clean", "releasable": True, "files_mirrors": files_mirrors, "version_name": "0.7.%d" % build,
         "platforms": {
             "lin64": {"deploy_archive": "deploy/lin64.tar.gz",
                       "requires": requires or {"os": "linux", "arch": "x86_64", "glibc": "2.14", "glibcxx": "3.4.21", "qt": "5.6"}},
@@ -314,7 +314,7 @@ class TestDeploy(unittest.TestCase):
         self.assertRefused(release, "empty directories can't be expressed in the format: empty")
 
     def test_wrong_setup(self):
-        self.assertRefused(make_release(self.dir, 10, updater_base="https://elsewhere.example.org/update/"),
+        self.assertRefused(make_release(self.dir, 10, files_mirrors=["https://elsewhere.example.org/"]),
                            "wrong --config?")
 
     def test_built_for_another_updater(self):

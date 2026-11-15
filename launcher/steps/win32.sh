@@ -84,9 +84,6 @@ $WINE "$CMAKE" -G "MinGW Makefiles" \
     -DCMAKE_PREFIX_PATH="$QT" \
     -DQt5_DIR="$QT" \
     -DZLIB_ROOT='T:\GnuWin32' \
-    -DLauncher_NOTIFICATION_URL:STRING="$NOTIFICATION_URL" \
-    -DLauncher_UPDATER_BASE="$UPDATER_BASE" \
-    -DLauncher_TRANSLATIONS_BASE_URL="$TRANSLATIONS_BASE_URL" \
     -DLauncher_FILES_MIRRORS="${FILES_MIRRORS// /;}" \
     -DLauncher_META_MIRRORS="${META_MIRRORS// /;}" \
     -DLauncher_UPDATER_ROOT_KEYS="${UPDATER_ROOT_KEYS// /;}" \

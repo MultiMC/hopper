@@ -343,7 +343,7 @@ def write_manifest(settings, platforms, branch, commit, build_number, incrementa
         "mode": "incremental" if incremental else "clean",
         # per platform: "incremental", or "clean (<why>)"
         "builds": build_modes,
-        "updater_base": settings["UPDATER_BASE"],
+        "files_mirrors": settings["FILES_MIRRORS"].split(),
         "updater": {"version": common.CURRENT_UPDATER, "root_keys": settings["UPDATER_ROOT_KEYS"].split()},
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "platforms": {},

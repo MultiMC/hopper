@@ -82,10 +82,9 @@ then its copies (the bucket), in the order the Launcher tries them. They go into
 Launcher as `Launcher_FILES_MIRRORS` and `Launcher_META_MIRRORS`, which builds every URL on
 our sites from a base URL and a path. `FILES_MIRRORS` also says where the files tree is
 (`files/publish.py` purges on each of its base URLs) and is the new updater's mirror list.
-Older Launchers take `UPDATER_BASE`, `NOTIFICATION_URL` and `TRANSLATIONS_BASE_URL` one by
-one; `common.load_settings` derives them from the first files base URL (`update/`,
-`notifications.json`, `translations/`), and the build steps pass both kinds, so older
-commits still build (but fail the gate, below). They can't be set themselves. Of the other
+Launchers from before these options took the updater, notification and translation URLs one
+by one; the build steps no longer pass those (since 2026-11-15), so such commits build with
+the URLs their own `CMakeLists.txt` defaults to (and fail the gate, below). Of the other
 URLs none take effect: the Launcher's `CMakeLists.txt` hard-codes the subreddit, Discord and
 bug tracker URLs with plain `set()`.
 
@@ -258,7 +257,7 @@ elsewhere; DIR must be new or empty.
    and minor from the Launcher's `CMakeLists.txt`; build numbers above 65535 are refused),
    mode (`clean` or `incremental`) and per platform
    whether its tree was reused (`builds`: `incremental`, or `clean (<why>)`) and what it was
-   built with (`build_key`: toolchain image, build steps, branch), `UPDATER_BASE`, package
+   built with (`build_key`: toolchain image, build steps, branch), `FILES_MIRRORS`, package
    hashes, gate results, `releasable`; and per platform what a machine needs to run it, as
    the gate measured it:
    `requires` (the updater's requirements, below) and `measured` (the gate's measurements:
@@ -738,7 +737,7 @@ that ever failed, the message names the snapshot to restore. Nothing is publishe
 `files/publish.py` publishes it with the rest of the tree.
 
 Refused, with nothing written: a release that isn't releasable, isn't a Launcher build, was
-built for another setup (its `UPDATER_BASE`), or lacks a platform's requirements (releases
+built for another setup (the first of its `FILES_MIRRORS`), or lacks a platform's requirements (releases
 from before 2026-11-01); a build number not higher than the tree's Latest, or withdrawn;
 a bundle with anything the format can't express (a mode other than 0644 and 0755, hard
 links, special files, empty directories, files outside the bundle directory).
