@@ -921,10 +921,10 @@ unchanged, and can't collide: every new name starts with `MultiMC-`. In `downloa
 only folders named like a version or a build number that hold `MultiMC-*` files count as
 archives; anything else there is left alone.
 
-**The builds page** (`downloads/builds.html`, since 2026-11-15): the builds that have
-downloads (a tag's, or an archive), newest first: tags, commit and its subject (from the
-Launcher's mirror, when it's there), when built, and each platform's download, the archive's
-when there is one. A static page in the website's look (multimc.org's stylesheet), no
+**The builds page** (`downloads/builds.html`, since 2026-11-15): every build in
+the tree, newest first: tags, commit and its subject (from the Launcher's mirror, when it's
+there), when built, and its platforms. A platform links to its download while the build has
+one: the archive's, or else a tag's; a build with neither lists its platforms unlinked. A static page in the website's look (multimc.org's stylesheet), no
 scripts; the website links to it. `updater/deploy.py`, `tag.py`, `remove.py` and `prune.py`
 write it again after every change (`write_page`).
 

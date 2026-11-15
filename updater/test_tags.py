@@ -169,8 +169,11 @@ class TestTags(unittest.TestCase):
     def test_builds_page_follows_the_tree(self):
         self.deploy(10, 11, 12)
         rows = self.page_rows()
-        # 11 has no tag and no archive: no downloads, not listed
-        self.assertEqual(list(rows), ["0.7.12", "0.7.10"])
+        # every build; 11 has no tag and no archive, so its platforms aren't links
+        self.assertEqual(list(rows), ["0.7.12", "0.7.11", "0.7.10"])
+        self.assertNotIn("href=\"MultiMC", rows["0.7.11"])
+        self.assertNotIn("href=\"archive/", rows["0.7.11"])
+        self.assertIn("lin64", rows["0.7.11"])
         self.assertIn(">latest<", rows["0.7.12"])
         self.assertIn('href="MultiMC-latest-linux-x86_64-qt5.tar.gz"', rows["0.7.12"])
         # an archived build links its archive, whose name doesn't move on
@@ -180,7 +183,7 @@ class TestTags(unittest.TestCase):
         self.assertNotIn("<script", self.page())
 
         self.ok("tag.py", "stable", 11)
-        self.assertEqual(list(self.page_rows()), ["0.7.12", "0.7.11", "0.7.10"])
+        self.assertIn('href="archive/0.7.11/', self.page_rows()["0.7.11"])
         self.ok("remove.py", 12)
         self.assertEqual(list(self.page_rows()), ["0.7.11", "0.7.10"])
         before = self.page()

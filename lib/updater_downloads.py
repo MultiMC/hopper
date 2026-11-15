@@ -19,8 +19,8 @@ archive for good: it is also the record of which builds were Stable, which the r
 (updater/prune.py) never purges. They are not part of the updater's tree (UpdaterFormats.md);
 files/publish.py publishes them with the rest of downloads/.
 
-Next to them, downloads/builds.html lists the builds that have downloads: their tags,
-commit and each platform's download. A static page in the website's look, linked from it.
+Next to them, downloads/builds.html lists every build in the tree: its tags, commit and
+platforms, each linked to its download while it has one. A static page in the website's look, linked from it.
 updater/deploy.py, tag.py, remove.py and prune.py write it again after each change
 (write_page).
 """
@@ -129,8 +129,9 @@ SITE = "https://multimc.org/"
 
 
 def page_builds(settings, tree):
-    """The builds that have downloads (a tag's or an archive), newest first, as
-    [(build manifest, tags, archived, {variant ID: path relative to downloads/})]."""
+    """Every build in the tree, newest first, as [(build manifest, tags, archived,
+    {variant ID: its download, relative to downloads/, or None})]: a build has downloads
+    while a tag names it, and for good once it has an archive."""
     tags = tree.tags()
     if tags is None:
         common.die("%s has no tags document yet: no builds page to write" % tree.root)
@@ -141,15 +142,17 @@ def page_builds(settings, tree):
     rows = []
     for number in reversed(tree.builds()):
         build_tags = [tag for tag in ("latest", "testing", "stable") if tag in named.get(number, [])]
-        if not build_tags and number not in archives:
-            continue
         doc = tree.build(number)
         files = {}
         for variant_id in doc["variants"]:
             p = platform_of(variant_id)
             # the archive's name stays; a tag's moves on to the next build
-            stem = archive_stem(doc, variant_id) if number in archives else tag_stem(build_tags[-1], variant_id)
-            files[variant_id] = "%s.%s" % (stem, p.archive)
+            if number in archives:
+                files[variant_id] = "%s.%s" % (archive_stem(doc, variant_id), p.archive)
+            elif build_tags:
+                files[variant_id] = "%s.%s" % (tag_stem(build_tags[-1], variant_id), p.archive)
+            else:
+                files[variant_id] = None
         rows.append((doc, build_tags, number in archives, files))
     return rows
 
@@ -180,7 +183,8 @@ def page(settings, tree):
         commit = '<a href="%s/commit/%s"><code>%s</code></a>' % (e(repository), e(doc["commit"]), e(doc["commit"][:10]))
         if titles.get(doc["commit"]):
             commit += " " + e(titles[doc["commit"]])
-        platforms = ", ".join('<a href="%s" title="%s">%s</a>' % (e(path), e(doc["variants"][variant]["name"]), e(names.get(variant, variant)))
+        platforms = ", ".join(('<a href="%s" title="%s">%s</a>' % (e(path), e(doc["variants"][variant]["name"]), e(names.get(variant, variant)))
+                               if path else '<span title="%s">%s</span>' % (e(doc["variants"][variant]["name"]), e(names.get(variant, variant))))
                               for variant, path in sorted(files.items(), key=lambda item: names.get(item[0], item[0])))
         body.append("<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td><td class=\"nowrap\">%s</td><td class=\"platforms\">%s</td></tr>"
                     % (e(doc.get("version") or str(doc["build"])), badges, commit, e(doc["built"][:16].replace("T", " ")), platforms))
@@ -192,7 +196,7 @@ def page(settings, tree):
 <title>Builds &middot; MultiMC</title>
 <link rel="stylesheet" href="{site}assets/css/uikit.multimc.min.css">
 <link rel="icon" type="image/png" href="{site}favicon-32x32.png">
-<style>.nowrap, .platforms a {{ white-space: nowrap; }}</style>
+<style>.nowrap, .platforms a, .platforms span {{ white-space: nowrap; }}</style>
 </head>
 <body>
 <div class="uk-navbar uk-navbar-attached">
