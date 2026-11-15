@@ -20,7 +20,8 @@ removed, so nothing piles up.
 Patreon credits: patrons.txt replaces the tree's.
 
 Linux packages (packages/build.py): the source tarball, .deb and .rpm go into downloads/, for a
-version not there yet; a version that is (its .deb) stays as it is, and nothing is deployed.
+version not there yet; a version that is (its .deb) stays as it is. downloads/multimc.deb and
+multimc.rpm, the names the website links to, become copies of the current version's.
 """
 
 import argparse
@@ -97,28 +98,47 @@ def deploy_translations(settings, release, manifest, root):
 
 
 
+# The packages' names that don't change with their version, for the website's links: copies of
+# the current version's files (like the Launcher's downloads/MultiMC-<variant>, which are
+# copies too), {stable name: versioned name}
+def stable_packages(version):
+    return {"multimc.deb": "multimc_%s-1.deb" % version, "multimc.rpm": "MultiMC5-%s-1.noarch.rpm" % version}
+
+
 def deploy_packages(settings, release, manifest, root):
     build = release / "build"
     version = manifest["version"]
     target = root / "downloads"
     with common.lock_files(settings):
         # a published version stays as it is; the .deb says whether this one is
-        if (target / ("multimc_%s-1.deb" % version)).exists():
+        published = (target / ("multimc_%s-1.deb" % version)).exists()
+        if not published:
+            clash = sorted(name for name in manifest["downloads"] if (target / name).exists())
+            if clash:
+                common.die("the files tree has %s already, but not the .deb of version %s" % (", ".join(clash), version))
+            for name, digest in manifest["downloads"].items():
+                if hashlib.sha256((build / name).read_bytes()).hexdigest() != digest:
+                    common.die("%s changed since it was built (sha256 differs from the manifest)" % (build / name))
+        source = target if published else build
+        stale = sorted(name for name, versioned in stable_packages(version).items()
+                       if not (target / name).is_file()
+                       or common.sha256_file(target / name) != common.sha256_file(source / versioned))
+        if published and not stale:
             log("Linux packages %s are published already, nothing deployed: raise VERSION in the "
                 "Packaging repo to release these changes (%s)" % (version, manifest["commit"][:10]))
             return
-        clash = sorted(name for name in manifest["downloads"] if (target / name).exists())
-        if clash:
-            common.die("the files tree has %s already, but not the .deb of version %s" % (", ".join(clash), version))
-        for name, digest in manifest["downloads"].items():
-            if hashlib.sha256((build / name).read_bytes()).hexdigest() != digest:
-                common.die("%s changed since it was built (sha256 differs from the manifest)" % (build / name))
+
         snapshot = common.snapshot_files(settings, "before-packages-%s" % version, kind="deploy", about=release.name)
         log("snapshot of the tree as it was: %s" % snapshot.name)
-        for name in sorted(manifest["downloads"]):
-            shutil.copyfile(build / name, target / name)
+        if not published:
+            for name in sorted(manifest["downloads"]):
+                shutil.copyfile(build / name, target / name)
+        for name in stale:
+            shutil.copyfile(target / stable_packages(version)[name], target / name)
         changes = common.tree_changes(snapshot, root)
 
+    if published:
+        log("Linux packages %s are published already; %s now %s them" % (version, " and ".join(stale), "is" if len(stale) == 1 else "are"))
     log("Linux packages %s from %s deployed to %s (not published): %d files changed"
         % (version, manifest["commit"][:10], root, len(changes)))
 

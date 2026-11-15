@@ -1298,7 +1298,10 @@ network, to get their tools). Before 2026-11-15 all of this was done by hand, an
 manifest (kind `packages`: the version, the downloads with their sha256). `files/deploy.py`
 puts the three downloads into the files tree's `downloads/`, but only for a version that isn't
 there yet (its `.deb`): a published version is never replaced, and a commit that doesn't raise
-`VERSION` is built and checked, and deploys nothing (the log says to raise it).
+`VERSION` is built and checked, and deploys nothing (the log says to raise it). It also keeps
+`downloads/multimc.deb` and `downloads/multimc.rpm`, the names the website links to, as copies
+of the current version's files (as the Launcher's `MultiMC-<variant>` downloads are copies of
+Stable's), so the website needs no change for a new version.
 `packages/aur.py` then pushes the `PKGBUILD` and `.SRCINFO` to `AUR_PUSH_URL` with the SSH key
 `AUR_DEPLOY_KEY`, when the files tree has that release's source tarball (so the AUR never names
 a tarball that isn't live), and only if they differ from what the AUR has. Laminar's job
