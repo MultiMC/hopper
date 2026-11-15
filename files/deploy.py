@@ -138,7 +138,7 @@ def deploy_packages(settings, release, manifest, root):
         changes = common.tree_changes(snapshot, root)
 
     if published:
-        log("Linux packages %s are published already; %s now %s them" % (version, " and ".join(stale), "is" if len(stale) == 1 else "are"))
+        log("Linux packages %s are published already; updated %s to match" % (version, " and ".join(stale)))
     log("Linux packages %s from %s deployed to %s (not published): %d files changed"
         % (version, manifest["commit"][:10], root, len(changes)))
 
