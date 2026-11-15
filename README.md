@@ -90,7 +90,7 @@ bug tracker URLs with plain `set()`.
 
 **The updater in the Launchers** (since 2026-11-04): `UPDATER_VERSION` is the updater the
 setup's Launchers are built with (`Launcher_UPDATER_VERSION`): 1, the current one
-(production, until its root key ceremony), or 2, the new one (files2). With 2 they pin
+(both setups until their cutover; production's was 2026-11-14), or 2, the new one. With 2 they pin
 `UPDATER_ROOT_KEYS` (`Launcher_UPDATER_ROOT_KEYS`) and compile in the newest keys document
 from `UPDATER_KEYS` as the floor (`Launcher_UPDATER_KEYS_FLOOR`), and each platform gets its
 variant ID from `PLATFORMS` in `lib/common.py` (`Launcher_UPDATER_VARIANT`).
@@ -704,7 +704,7 @@ replacement: it deploys a Launcher release into the setup's new updater tree, as
 local files tree (`updater/` on files2), a directory of its own next to `update/` and
 `files/`, so the same snapshots, lock and `files/publish.py` cover it, and it is served as
 `<UPDATER_ROOT>/` below each base URL of `FILES_MIRRORS`. It never touches
-the current layout. With `UPDATER_ROOT` empty (production, until its root key ceremony) it
+the current layout. With `UPDATER_ROOT` empty (a setup without a tree) it
 refuses; `--if-configured` says so and exits 0 instead.
 
 From the release's `deploy/<platform>.tar.gz` and `manifest.json` it makes one build for
@@ -1501,13 +1501,13 @@ itself; only replacing the `~/laminar/cfg` link needs a restart of `laminar.serv
 watches the directory it found when it started. Its jobs so far:
 
 - `meta`: the meta pipeline (below).
-- `tag-files2`, `remove-files2`, `prune-files2`: move files2's tags, withdraw a build, purge
-  what's over the cap, and publish that (see "A setup's builds and the actions on them").
+- `tag-<setup>`, `remove-<setup>`, `prune-<setup>` for production and files2: move the
+  setup's tags, withdraw a build, purge what's over the cap, and publish that (see "A
+  setup's builds and the actions on them"). Each is a link to `cfg/scripts/<action>`.
 - `launcher-production`, `launcher-files2`, `translations-production`, `translations-files2`,
   `website-production`, `patrons-production`: hopper's releases (below).
-  `launcher-production` has no `TRIGGER` since 2026-11-03 (commented out in its `.conf`):
-  no production Launcher releases until the Launcher's sites (`FILES_MIRRORS`) are verified
-  on files2.
+  Since the cutover (2026-11-15) `launcher-production` has the `TRIGGER` and
+  `launcher-files2` doesn't: files2 builds only when queued by hand.
 - `template-production`: the translations template (below).
 - `verify-production`, `verify-files2`: every night, check the newest incremental Launcher
   release against a clean build of its commit (see "Checking incremental releases").
