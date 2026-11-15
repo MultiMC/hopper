@@ -1266,11 +1266,12 @@ anonymous.
     website/publish.py [--config FILE] [--dry-run] [--no-purge] --production [release]
 
 multimc.org is a static Hugo site from `WEBSITE_BRANCH` of `WEBSITE_REPO` (MultiMC/Website).
-`website/build.py` builds it with `IMAGE_SITE`, TeamCity's image with Hugo 0.31.1 (not
-rebuildable; it is loaded from Toolchains: `snapshots/2026-10-21-deth001`), into
-`RELEASES_DIR/website-<time>-<commit>/site`. The output is the same as TeamCity's builds
-(verified against test.multimc.org), except the copyright year, which Hugo takes from the
-clock.
+`website/build.py` builds it with `IMAGE_SITE` (Toolchains' `containers/site`, Hugo
+0.169.0), into `RELEASES_DIR/website-<time>-<commit>/site`. Until 2026-11-16 it was
+TeamCity's image with Hugo 0.31.1, whose Markdown (Blackfriday) mangled list items with
+paragraphs; the site's templates were ported then, and the output compared page by page
+(the same text and links, but the posts list at `/posts/index.html`, with a redirect from
+the old `/posts.html`).
 
 Publishing works like TeamCity's "Publish Test" and "Publish Prod", but with R2 instead of
 AWS S3: `website/publish.py` makes the test bucket (`WEBSITE_TEST_TARGET`, served at

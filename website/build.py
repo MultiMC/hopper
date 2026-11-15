@@ -5,9 +5,9 @@
 
 1. Updates a local mirror of WEBSITE_REPO ($STATE/website.git) and checks out WEBSITE_BRANCH
    at the commit (default: its head) into the release directory.
-2. Runs `hugo -s site/` there in IMAGE_SITE (Hugo 0.31.1, TeamCity's image), without
-   network, as the calling user; the site goes to site/ in the release directory. The same
-   output as TeamCity's builds, except the copyright year, which Hugo takes from the clock.
+2. Runs `hugo -s site/` there in IMAGE_SITE (Toolchains, containers/site), without network,
+   as the calling user, on the checkout mounted read-only (hence --noBuildLock); the site
+   goes to site/ in the release directory.
 3. Writes manifest.json (kind "website", the commit, the files, releasable: Hugo succeeded
    and made index.html).
 
@@ -70,7 +70,7 @@ def main():
         site.mkdir()
         command = common.container_run(settings) + ["--network", "none",
                    "-v", "%s:/src:ro" % src, "-v", "%s:/out" % site, "-w", "/src",
-                   settings["IMAGE_SITE"], "hugo", "-s", "site/", "-d", "/out"]
+                   settings["IMAGE_SITE"], "hugo", "--noBuildLock", "-s", "site/", "-d", "/out"]
         with open(out / "hugo.log", "w") as logfile:
             result = subprocess.run(command, stdout=logfile, stderr=subprocess.STDOUT)
 
