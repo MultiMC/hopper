@@ -368,6 +368,7 @@ def resolve_on_branch(mirror, branch, commit=None):
 LAUNCHER_MIRROR = STATE / "launcher.git"
 TRANSLATIONS_MIRROR = STATE / "translations.git"
 WEBSITE_MIRROR = STATE / "website.git"
+PACKAGING_MIRROR = STATE / "packaging.git"
 
 
 # --- builds ------------------------------------------------------------------------------

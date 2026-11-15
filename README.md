@@ -22,7 +22,8 @@ directory down and is run from the top of the checkout, e.g.
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
-| `files/` | The files tree (files.multimc.org), shared by the Launcher, translations and Patreon releases: `deploy.py` deploys translations and the Patreon credits into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
+| `packages/` | The Linux packages (the wrapper's `.deb`, `.rpm` and the AUR's `multimc-bin`): `build.py` builds them with the Packaging repo's own `build.py`, as a release; `aur.py` pushes a release's `PKGBUILD` and `.SRCINFO` to the AUR |
+| `files/` | The files tree (files.multimc.org), shared by the Launcher, translations, Patreon and Linux package releases: `deploy.py` deploys translations, the Patreon credits and the Linux packages into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
 | `updater/` | The new updater's tree (the Design repo's `UpdaterFormats.md`): `deploy.py` deploys a Launcher release into it (the new layout's publisher); `tag.py`, `remove.py` and `prune.py` move the Testing and Stable tags, remove a build and keep the tree under its size cap; `validate.py` checks a document or a whole tree against the format; `test_*.py` their tests |
 | `keys/` | The new updater's signing keys, one script per step of the offline key ceremony: `make-key.py` makes a key pair, `write-keys.py` writes a keys document, `sign.py` signs a document, `verify.py` checks keys documents and signed documents; `test_keys.py` their tests |
 | `laminar/` | Laminar, which runs the jobs: `cfg/`, its config (`jobs/<job>.run` and `.conf`, `contexts/`), linked as `~/laminar/cfg`; `build.sh` and `Containerfile` build its binaries, linked against nothing but glibc |
@@ -1278,6 +1279,47 @@ that is on test to `WEBSITE_TARGET` (`WEBSITE_URL`), so production gets exactly 
 checked on test; it's run by hand. The release cleanup never removes a release that is live
 (`*.live`). The website is production's only (`WEBSITE_REPO` is empty in `config/files2.env`).
 
+## Linux packages (`packages/build.py`, `packages/aur.py`)
+
+    packages/build.py [--config FILE] [--out DIR] [commit]
+    packages/aur.py [--config FILE] [--dry-run] [--if-configured] <release>
+
+The wrapper packages for Linux (`run.sh`, whose first start downloads the current Stable
+build, with the desktop file, icon, metainfo and man page) are made from one source, the
+`PACKAGING_BRANCH` of `PACKAGING_REPO` (MultiMC/Packaging): its `Makefile` says what goes where,
+its `VERSION` is the version, and its own `build.py` builds the source tarball
+(`multimc-wrapper-<version>.tar.gz`, reproducible), the `.deb`, the `.rpm` and the AUR's
+`PKGBUILD` and `.SRCINFO`, each format in its distribution's image (Debian, Fedora, Arch; with
+network, to get their tools). Before 2026-11-15 all of this was done by hand, and the AUR's
+`multimc-bin` repackaged the `.deb`.
+
+`packages/build.py` checks out the commit (mirror: `$STATE/packaging.git`) and runs that
+`build.py` with `CONTAINER_ENGINE` into `RELEASES_DIR/packages-<time>-<commit>`, with a
+manifest (kind `packages`: the version, the downloads with their sha256). `files/deploy.py`
+puts the three downloads into the files tree's `downloads/`, but only for a version that isn't
+there yet (its `.deb`): a published version is never replaced, and a commit that doesn't raise
+`VERSION` is built and checked, and deploys nothing (the log says to raise it).
+`packages/aur.py` then pushes the `PKGBUILD` and `.SRCINFO` to `AUR_PUSH_URL` with the SSH key
+`AUR_DEPLOY_KEY`, when the files tree has that release's source tarball (so the AUR never names
+a tarball that isn't live), and only if they differ from what the AUR has. Laminar's job
+`packages-production` runs all of it for each new commit. Linux packages are production's
+only (`PACKAGING_REPO` is empty in `config/files2.env`).
+
+To release a new version: change the Packaging repo, raise its `VERSION`, add a changelog
+entry to its `rpm/MultiMC5.spec.in`, push.
+
+Setting up the AUR push, once, on the build server as `hopper`: an SSH key at
+`AUR_DEPLOY_KEY` (`~/.config/multimc-deploy/aur-key`, mode 600), its public half added to an
+AUR account that maintains `multimc-bin`, and the AUR's host key in `~/.ssh/known_hosts`
+(`ssh-keyscan aur.archlinux.org`, checked against the fingerprints on the AUR's home page).
+Without the key the push is skipped, with a log line; the rest of the release still runs.
+
+Tested 2026-11-15 on a workstation with a throwaway clone of the Packaging repo and a local
+stand-in for the AUR repo: version 1.9 built in 26 s; `aur.py` pushed nothing while the
+tarball wasn't in the files tree, skipped without a key, and pushed `multimc-bin 1.9-1` once
+it was, then found nothing to push. `files/deploy.py` for packages hasn't run yet (it needs the
+btrfs files tree).
+
 ## On the build server
 
 Everything runs on the build server, which stays on, as the `hopper` user (home `/srv/hopper`, the
@@ -1473,7 +1515,8 @@ a stream with `config/<setup>.env`: `launcher-production` and `launcher-files2` 
 the Launcher repo's `develop` (files2: its `LAUNCHER_BRANCH`, `develop` too since 2026-11-11), `translations-production` and `translations-files2` for each new commit
 of the Translations repo's `master`, `website-production` for each new commit of the Website
 repo's `master` (it replaced the build-only `website` job, whose runs stay in Laminar's
-history), `patrons-production` every day at noon. Their `.run` are links to one script,
+history), `patrons-production` every day at noon, `packages-production` for each new commit of
+the Packaging repo's `master`. Their `.run` are links to one script,
 `cfg/scripts/release`, which runs the same scripts the daemon ran, in the same order:
 
 - launcher: `launcher/release-build.py --incremental` (since 2026-11-09, in the setup's
@@ -1485,6 +1528,9 @@ history), `patrons-production` every day at noon. Their `.run` are links to one 
 - patrons: `patrons/update.py`, `files/deploy.py`, `files/publish.py`
 - website: `website/build.py`, `website/publish.py` (to test; production is still promoted
   by hand, `website/publish.py --production`)
+- packages: `packages/build.py`, `files/deploy.py` (only a version not published yet),
+  `files/publish.py`, `packages/aur.py --if-configured` (after the publish: the AUR's
+  `PKGBUILD` downloads the source tarball)
 
 then `daemon/releases.py cleanup` (a failure of that is only logged). The release stays in
 `RELEASES_DIR`, under its cleanup; the archive gets its path, `manifest.json` and its build

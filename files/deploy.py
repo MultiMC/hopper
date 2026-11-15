@@ -18,9 +18,13 @@ kept their previous release (still named in the new index); everything else in t
 removed, so nothing piles up.
 
 Patreon credits: patrons.txt replaces the tree's.
+
+Linux packages (packages/build.py): the source tarball, .deb and .rpm go into downloads/, for a
+version not there yet; a version that is (its .deb) stays as it is, and nothing is deployed.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -51,11 +55,13 @@ def main():
         deploy_translations(settings, release, manifest, root)
     elif manifest.get("kind") == "patrons":
         deploy_patrons(settings, release, root)
+    elif manifest.get("kind") == "packages":
+        deploy_packages(settings, release, manifest, root)
     elif "kind" not in manifest:
         common.die("%s is a Launcher build: those go into the new updater's tree (updater/deploy.py), "
                    "the old update layout takes none" % release)
     else:
-        common.die("%s is a %s release, files/deploy.py takes translations and patrons" % (release, manifest["kind"]))
+        common.die("%s is a %s release, files/deploy.py takes translations, patrons and packages" % (release, manifest["kind"]))
 
 
 def deploy_translations(settings, release, manifest, root):
@@ -89,6 +95,32 @@ def deploy_translations(settings, release, manifest, root):
 
     log("deployed to %s (not published): %d files changed" % (root, len(changes)))
 
+
+
+def deploy_packages(settings, release, manifest, root):
+    build = release / "build"
+    version = manifest["version"]
+    target = root / "downloads"
+    with common.lock_files(settings):
+        # a published version stays as it is; the .deb says whether this one is
+        if (target / ("multimc_%s-1.deb" % version)).exists():
+            log("Linux packages %s are published already, nothing deployed: raise VERSION in the "
+                "Packaging repo to release these changes (%s)" % (version, manifest["commit"][:10]))
+            return
+        clash = sorted(name for name in manifest["downloads"] if (target / name).exists())
+        if clash:
+            common.die("the files tree has %s already, but not the .deb of version %s" % (", ".join(clash), version))
+        for name, digest in manifest["downloads"].items():
+            if hashlib.sha256((build / name).read_bytes()).hexdigest() != digest:
+                common.die("%s changed since it was built (sha256 differs from the manifest)" % (build / name))
+        snapshot = common.snapshot_files(settings, "before-packages-%s" % version, kind="deploy", about=release.name)
+        log("snapshot of the tree as it was: %s" % snapshot.name)
+        for name in sorted(manifest["downloads"]):
+            shutil.copyfile(build / name, target / name)
+        changes = common.tree_changes(snapshot, root)
+
+    log("Linux packages %s from %s deployed to %s (not published): %d files changed"
+        % (version, manifest["commit"][:10], root, len(changes)))
 
 
 def deploy_patrons(settings, release, root):
