@@ -54,8 +54,8 @@ export WINEPATH="$MINGW"'\bin;'"$QT"'\bin;T:\Tools;T:\GnuWin32\bin;'"$JDK"'\bin'
 export JAVA_HOME="$JDK"
 CMAKE='T:\CMake-3.20.1\bin\cmake.exe'
 
-# The updater's keys floor, put next to the build by common.prepare_build_output (updater 2
-# only)
+# The updater's keys floor, put next to the build by common.prepare_build_output (only when
+# the setup pins root keys, UPDATER_ROOT_KEYS)
 UPDATER_FLOOR=
 if [ -f /out/updater-keys-floor.json ]; then UPDATER_FLOOR='O:\updater-keys-floor.json'; fi
 
@@ -89,7 +89,6 @@ $WINE "$CMAKE" -G "MinGW Makefiles" \
     -DLauncher_TRANSLATIONS_BASE_URL="$TRANSLATIONS_BASE_URL" \
     -DLauncher_FILES_MIRRORS="${FILES_MIRRORS// /;}" \
     -DLauncher_META_MIRRORS="${META_MIRRORS// /;}" \
-    -DLauncher_UPDATER_VERSION="$UPDATER_VERSION" \
     -DLauncher_UPDATER_ROOT_KEYS="${UPDATER_ROOT_KEYS// /;}" \
     -DLauncher_UPDATER_KEYS_FLOOR="$UPDATER_FLOOR" \
     -DLauncher_UPDATER_VARIANT="$UPDATER_VARIANT" \

@@ -487,27 +487,22 @@ def build_command(settings, plat, src, out, build_number):
 # --- the updater compiled into the Launchers ----------------------------------------------
 
 # In a platform's output directory: the keys document its build compiles in as the floor
-# (Launcher_UPDATER_KEYS_FLOOR, read by the build steps at /out/<this>); only with updater 2
+# (Launcher_UPDATER_KEYS_FLOOR, read by the build steps at /out/<this>); only when the setup
+# has UPDATER_ROOT_KEYS
 UPDATER_FLOOR_FILE = "updater-keys-floor.json"
 
 
 def updater_floor(settings):
     """The keys document this setup's Launchers compile in as the floor (its bytes), or None
-    with updater 1 (UPDATER_VERSION). Refuses a setup that is only half set up for updater 2:
-    the tree must be at updater/ (where Launchers look for it on the files site), the keys
-    documents in UPDATER_KEYS must form a valid, unexpired chain, and UPDATER_ROOT_KEYS must
-    be exactly the newest one's root keys."""
-    version, roots = settings["UPDATER_VERSION"], settings["UPDATER_ROOT_KEYS"].split()
-    if version == "1":
-        if roots:
-            die("UPDATER_ROOT_KEYS is set, but UPDATER_VERSION is 1 (only updater 2 pins keys)")
-        return None
-    if version != "2":
-        die("UPDATER_VERSION must be 1 or 2, not %r" % version)
-    if settings["UPDATER_ROOT"] != "updater":
-        die("updater 2 needs UPDATER_ROOT=updater (Launchers look for the tree there), not %r" % settings["UPDATER_ROOT"])
+    without UPDATER_ROOT_KEYS (Launchers that can't update themselves). Refuses a setup that is
+    only half set up: the tree must be at updater/ (where Launchers look for it on the files
+    site), the keys documents in UPDATER_KEYS must form a valid, unexpired chain, and
+    UPDATER_ROOT_KEYS must be exactly the newest one's root keys."""
+    roots = settings["UPDATER_ROOT_KEYS"].split()
     if not roots:
-        die("updater 2 needs UPDATER_ROOT_KEYS")
+        return None
+    if settings["UPDATER_ROOT"] != "updater":
+        die("UPDATER_ROOT_KEYS needs UPDATER_ROOT=updater (Launchers look for the tree there), not %r" % settings["UPDATER_ROOT"])
     # Here, not at the top: updater_tree imports this module
     import updater_formats as formats
     import updater_tree
@@ -525,6 +520,11 @@ def updater_floor(settings):
 
 
 
+# The updater in the Launchers hopper builds, as release manifests record it: updater 2 since
+# the cutover (2026-11-14); before it, also updater 1
+CURRENT_UPDATER = 2
+
+
 def release_updater(manifest):
     """The updater a release's Launchers were built with: {"version", "root_keys"} from its
     manifest; releases from before it was recorded used updater 1."""
@@ -533,10 +533,10 @@ def release_updater(manifest):
 
 def check_release_updater(settings, manifest, release):
     """Refuse a release whose Launchers use another updater or other pinned root keys than
-    this setup's (so, for example, a build pinned to files2's test keys can't be deployed
-    anywhere else)."""
+    this setup's (so, for example, a build pinned to files2's test keys, or one with updater 1,
+    can't be deployed anywhere else)."""
     built = release_updater(manifest)
-    setup = {"version": int(settings["UPDATER_VERSION"]), "root_keys": sorted(settings["UPDATER_ROOT_KEYS"].split())}
+    setup = {"version": CURRENT_UPDATER, "root_keys": sorted(settings["UPDATER_ROOT_KEYS"].split())}
     if built["version"] != setup["version"] or sorted(built["root_keys"]) != setup["root_keys"]:
         die("%s was built with updater %d pinned to %s, this setup has updater %d pinned to %s (wrong --config?)"
             % (release, built["version"], " ".join(built["root_keys"]) or "no keys",
@@ -544,7 +544,7 @@ def check_release_updater(settings, manifest, release):
 
 def prepare_build_output(settings, out):
     """Put what a build compiles in from outside the source into its output directory: the
-    updater's keys floor (or remove one left by an earlier build with updater 2)."""
+    updater's keys floor (or remove one left by an earlier build, in a setup without one)."""
     floor = updater_floor(settings)
     path = Path(out) / UPDATER_FLOOR_FILE
     if floor is None:

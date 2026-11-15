@@ -73,8 +73,9 @@ MACOS_LINKS = [("MultiMC.app/Contents/Frameworks/QtCore.framework/Versions/Curre
 
 
 def make_release(directory, build, linux=None, requires=None, updater_base="https://files.example.org/update/",
-                 updater=None):
-    """A release as launcher/release-build.py writes it, for lin64 and osx64-5.15.2."""
+                 updater={"version": 2, "root_keys": []}):
+    """A release as launcher/release-build.py writes it, for lin64 and osx64-5.15.2. updater=None:
+    one from before the manifest recorded the updater, so with updater 1."""
     release = Path(tempfile.mkdtemp(dir=directory)) / str(build)
     (release / "deploy").mkdir(parents=True)
     with tarfile.open(release / "deploy/lin64.tar.gz", "w:gz") as tar:
@@ -317,9 +318,12 @@ class TestDeploy(unittest.TestCase):
                            "wrong --config?")
 
     def test_built_for_another_updater(self):
-        # This setup builds updater 1 (the default); a release pinned to keys goes elsewhere
+        # This setup pins no keys (the default); a release pinned to keys goes elsewhere
         release = make_release(self.dir, 10, updater={"version": 2, "root_keys": [formats.public_key(self.keys["root1"])]})
         self.assertRefused(release, "was built with updater 2 pinned to")
+        # Releases from before the cutover, with updater 1, go nowhere
+        self.assertRefused(make_release(self.dir, 10, updater={"version": 1, "root_keys": []}), "was built with updater 1")
+        self.assertRefused(make_release(self.dir, 10, updater=None), "was built with updater 1")
 
     def test_online_key_not_in_keys(self):
         self.assertRefused(make_release(self.dir, 10), "isn't an online key of keys/1.json",
@@ -488,17 +492,17 @@ class TestUpdaterSettings(unittest.TestCase):
         shutil.rmtree(self.keys_dir)
 
     def floor(self, **settings):
-        return common.updater_floor({"UPDATER_VERSION": "2", "UPDATER_ROOT": "updater", "UPDATER_KEYS": str(self.keys_dir),
+        return common.updater_floor({"UPDATER_ROOT": "updater", "UPDATER_KEYS": str(self.keys_dir),
                                      "UPDATER_ROOT_KEYS": " ".join(self.roots), **settings})
 
     def assertRefused(self, **settings):
         with self.assertRaises(SystemExit):
             self.floor(**settings)
 
-    def test_updater_1(self):
-        self.assertIsNone(self.floor(UPDATER_VERSION="1", UPDATER_ROOT_KEYS=""))
-        self.assertRefused(UPDATER_VERSION="1")
-        self.assertRefused(UPDATER_VERSION="3")
+    def test_no_updater(self):
+        # no pinned keys: Launchers that can't update themselves, whatever else is set
+        self.assertIsNone(self.floor(UPDATER_ROOT_KEYS=""))
+        self.assertIsNone(self.floor(UPDATER_ROOT_KEYS="", UPDATER_ROOT="", UPDATER_KEYS=""))
 
     def test_floor_is_newest_keys_document(self):
         self.assertEqual(self.floor(), (self.keys_dir / "1.json").read_bytes())
@@ -510,7 +514,6 @@ class TestUpdaterSettings(unittest.TestCase):
         self.assertEqual(self.floor(UPDATER_ROOT_KEYS=pinned), (self.keys_dir / "2.json").read_bytes())
 
     def test_half_set_up(self):
-        self.assertRefused(UPDATER_ROOT_KEYS="")
         self.assertRefused(UPDATER_ROOT="")
         self.assertRefused(UPDATER_ROOT_KEYS=self.roots[0])
         self.assertRefused(UPDATER_ROOT_KEYS=" ".join(self.roots + [self.roots[0]]))

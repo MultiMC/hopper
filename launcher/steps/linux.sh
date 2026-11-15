@@ -16,8 +16,8 @@ rm -rf /out/install
 if [ "$CLEAN" = 1 ]; then rm -rf /out/build; fi
 mkdir -p /out/build && cd /out/build
 
-# The updater's keys floor, put next to the build by common.prepare_build_output (updater 2
-# only)
+# The updater's keys floor, put next to the build by common.prepare_build_output (only when
+# the setup pins root keys, UPDATER_ROOT_KEYS)
 UPDATER_FLOOR=
 if [ -f /out/updater-keys-floor.json ]; then UPDATER_FLOOR='/out/updater-keys-floor.json'; fi
 
@@ -33,7 +33,6 @@ cmake \
     -DLauncher_TRANSLATIONS_BASE_URL="$TRANSLATIONS_BASE_URL" \
     -DLauncher_FILES_MIRRORS="${FILES_MIRRORS// /;}" \
     -DLauncher_META_MIRRORS="${META_MIRRORS// /;}" \
-    -DLauncher_UPDATER_VERSION="$UPDATER_VERSION" \
     -DLauncher_UPDATER_ROOT_KEYS="${UPDATER_ROOT_KEYS// /;}" \
     -DLauncher_UPDATER_KEYS_FLOOR="$UPDATER_FLOOR" \
     -DLauncher_UPDATER_VARIANT="$UPDATER_VARIANT" \

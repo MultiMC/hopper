@@ -89,20 +89,22 @@ commits still build (but fail the gate, below). They can't be set themselves. Of
 URLs none take effect: the Launcher's `CMakeLists.txt` hard-codes the subreddit, Discord and
 bug tracker URLs with plain `set()`.
 
-**The updater in the Launchers** (since 2026-11-04): `UPDATER_VERSION` is the updater the
-setup's Launchers are built with (`Launcher_UPDATER_VERSION`): 1, the current one
-(both setups until their cutover; production's was 2026-11-14), or 2, the new one. With 2 they pin
-`UPDATER_ROOT_KEYS` (`Launcher_UPDATER_ROOT_KEYS`) and compile in the newest keys document
-from `UPDATER_KEYS` as the floor (`Launcher_UPDATER_KEYS_FLOOR`), and each platform gets its
-variant ID from `PLATFORMS` in `lib/common.py` (`Launcher_UPDATER_VARIANT`).
-`common.updater_floor` refuses a setup that is only half set up: root keys with updater 1;
-updater 2 without root keys, without `UPDATER_ROOT=updater` (the Launchers look for the tree
-at `updater/`), with a keys chain that doesn't verify or has expired, or with root keys that
-aren't exactly the newest keys document's. `common.prepare_build_output` writes the floor
-next to each build as `updater-keys-floor.json` (and removes one left by an earlier build
-with updater 2), where the build steps pick it up. Every release's `manifest.json` records
-the updater and root keys it was built with (`updater`), and `updater/deploy.py` refuses a
-release built with another updater or other keys than the setup's, so a build pinned to files2's test keys can't go anywhere else.
+**The updater in the Launchers**: the setup's Launchers pin `UPDATER_ROOT_KEYS`
+(`Launcher_UPDATER_ROOT_KEYS`) and compile in the newest keys document from `UPDATER_KEYS` as
+the floor (`Launcher_UPDATER_KEYS_FLOOR`), and each platform gets its variant ID from
+`PLATFORMS` in `lib/common.py` (`Launcher_UPDATER_VARIANT`). Without root keys (the defaults)
+the Launchers can't update themselves, like a developer's build, and
+`launcher/release-build.py` refuses to build a release. Until the cutover (production's was
+2026-11-14) the Launchers had the old updater, updater 1; since then the Launcher has only
+the new one, updater 2. `common.updater_floor` refuses a setup that is only half set up: root
+keys without `UPDATER_ROOT=updater` (the Launchers look for the tree at `updater/`), with a
+keys chain that doesn't verify or has expired, or that aren't exactly the newest keys
+document's. `common.prepare_build_output` writes the floor next to each build as
+`updater-keys-floor.json` (and removes one left by an earlier build in a setup without root
+keys), where the build steps pick it up. Every release's `manifest.json` records the updater
+and root keys it was built with (`updater`), and `updater/deploy.py` refuses a release built
+with another updater (updater 1, from before the cutover) or other keys than the setup's, so
+a build pinned to files2's test keys can't go anywhere else.
 
 **Container engine:** `CONTAINER_ENGINE` is `docker` (default; containers run as the
 calling user with `-u`) or `podman` (rootless, with `--userns=keep-id`, so the calling user
@@ -1100,8 +1102,8 @@ the YubiKeys the same way, on any machine: the keys never leave them.
 - `config/keys/production/1.json` and `.sig` into this repo, and a table of the public keys
   here, as for files2. Production's settings don't change yet: `UPDATER_ROOT=updater`,
   `UPDATER_KEYS`, `UPDATER_ONLINE_KEY` (the build server's `~/keys/production/online1.pem`),
-  `UPDATER_ROOT_KEYS` (the two root public keys) and `UPDATER_VERSION=2` are set together,
-  with the freeze ("The old update layout", the cutover); the keys alone with updater 1 are refused.
+  `UPDATER_ROOT_KEYS` (the two root public keys) are set together, with the freeze ("The old
+  update layout", the cutover).
 - The renewal: the next keys document is signed about 18 months ahead, before the expiry,
   which also checks that both YubiKeys still sign and both PINs are still known. Nothing
   reminds anyone yet (G3 waits for a way of telling the maintainer that can't be missed):
@@ -1161,8 +1163,8 @@ R2, purge), 39 s.
 files2 also has the new updater's tree, `updater/` (since 2026-11-01, build 5025), signed
 with files2's test keys (`UPDATER_*` in `config/files2.env`), its mirror list naming the
 files server first and the bucket second. Laminar's `launcher-files2` adds every new build
-to it. Since 2026-11-04 files2's Launchers are built with the new updater
-(`UPDATER_VERSION=2`), pinned to files2's root keys, so they update from that tree.
+to it. Since 2026-11-04 files2's Launchers are built with the new updater, pinned to files2's
+root keys, so they update from that tree.
 
 ### The cutover rehearsal
 

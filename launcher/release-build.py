@@ -166,8 +166,9 @@ def resolve_commit(settings, branch, commit):
 
 def check_prerequisites(settings, platforms):
     """The toolchain images, the descriptions the compatibility gate checks against, and the
-    updater's settings (common.updater_floor)."""
-    common.updater_floor(settings)
+    updater's settings (common.updater_floor): a release's Launchers must update themselves."""
+    if common.updater_floor(settings) is None:
+        common.die("a release needs the updater: UPDATER_ROOT_KEYS is empty (wrong --config?)")
     for p in platforms:
         image = settings[p.image_setting]
         if not common.image_exists(settings, image):
@@ -343,7 +344,7 @@ def write_manifest(settings, platforms, branch, commit, build_number, incrementa
         # per platform: "incremental", or "clean (<why>)"
         "builds": build_modes,
         "updater_base": settings["UPDATER_BASE"],
-        "updater": {"version": int(settings["UPDATER_VERSION"]), "root_keys": settings["UPDATER_ROOT_KEYS"].split()},
+        "updater": {"version": common.CURRENT_UPDATER, "root_keys": settings["UPDATER_ROOT_KEYS"].split()},
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "platforms": {},
     }
