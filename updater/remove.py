@@ -109,6 +109,7 @@ def main():
                 log("wrote %s" % path.relative_to(settings["FILES_ROOT"]))
         if downloads.remove_archive(settings, build):
             log("removed build %d's archive in downloads/archive/" % build)
+        log("wrote %s" % downloads.write_page(settings, tree).relative_to(settings["FILES_ROOT"]))
     log("build %d is withdrawn and removed from %s (not published)" % (build, tree.root))
     if args.json:
         print(json.dumps(report))

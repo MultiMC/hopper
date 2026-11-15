@@ -134,6 +134,7 @@ def main():
         for b in archives:
             for path in downloads.write_archive(settings, tree, b):
                 log("wrote %s" % path.relative_to(settings["FILES_ROOT"]))
+        log("wrote %s" % downloads.write_page(settings, tree).relative_to(settings["FILES_ROOT"]))
     log("%s in %s (not published)" % (", ".join("%s is build %d" % (tag, tags[tag]) for tag in moved), tree.root))
     if args.json:
         print(json.dumps(report))

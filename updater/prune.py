@@ -123,6 +123,7 @@ def main():
         except formats.Invalid as e:
             common.die("the tree as written isn't valid: %s; don't publish it (files/snapshots.py restore %s)"
                        % (e, snapshot.name))
+        log("wrote %s" % downloads.write_page(settings, tree).relative_to(settings["FILES_ROOT"]))
     log("purged %d builds, %d files removed from %s (not published)" % (len(purged), removed, tree.root))
     if args.json:
         print(json.dumps(report))

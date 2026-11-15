@@ -170,6 +170,7 @@ def main():
         if not current:
             written_downloads += downloads.write_archive(settings, tree, build)
         log("download archives: %s" % " ".join(str(path.relative_to(settings["FILES_ROOT"])) for path in written_downloads))
+        log("wrote %s" % downloads.write_page(settings, tree).relative_to(settings["FILES_ROOT"]))
     log("deployed build %d to %s (not published): %d files written; %s" % (build, tree.root, written, summary))
 
 

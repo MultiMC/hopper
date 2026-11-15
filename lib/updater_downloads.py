@@ -18,12 +18,19 @@ get .tar.gz, Windows .zip (lib/common.py, PLATFORMS). A build that has been Stab
 archive for good: it is also the record of which builds were Stable, which the retention
 (updater/prune.py) never purges. They are not part of the updater's tree (UpdaterFormats.md);
 files/publish.py publishes them with the rest of downloads/.
+
+Next to them, downloads/builds.html lists the builds that have downloads: their tags,
+commit and each platform's download. A static page in the website's look, linked from it.
+updater/deploy.py, tag.py, remove.py and prune.py write it again after each change
+(write_page).
 """
 
 import datetime
 import gzip
+import html
 import os
 import shutil
+import subprocess
 import tarfile
 import zipfile
 from pathlib import Path
@@ -115,6 +122,110 @@ def write_archive(settings, tree, build):
     """downloads/archive/<version>/, for a build that is or has been Stable."""
     doc = tree.build(build)
     return write_archives(tree, doc, downloads_dir(settings), lambda variant: archive_stem(doc, variant))
+
+
+PAGE = "builds.html"
+SITE = "https://multimc.org/"
+
+
+def page_builds(settings, tree):
+    """The builds that have downloads (a tag's or an archive), newest first, as
+    [(build manifest, tags, archived, {variant ID: path relative to downloads/})]."""
+    tags = tree.tags()
+    if tags is None:
+        common.die("%s has no tags document yet: no builds page to write" % tree.root)
+    archives = archived_builds(settings)
+    named = {}
+    for tag, build in tags["tags"].items():
+        named.setdefault(build, []).append(tag)
+    rows = []
+    for number in reversed(tree.builds()):
+        build_tags = [tag for tag in ("latest", "testing", "stable") if tag in named.get(number, [])]
+        if not build_tags and number not in archives:
+            continue
+        doc = tree.build(number)
+        files = {}
+        for variant_id in doc["variants"]:
+            p = platform_of(variant_id)
+            # the archive's name stays; a tag's moves on to the next build
+            stem = archive_stem(doc, variant_id) if number in archives else tag_stem(build_tags[-1], variant_id)
+            files[variant_id] = "%s.%s" % (stem, p.archive)
+        rows.append((doc, build_tags, number in archives, files))
+    return rows
+
+
+def subjects(commits):
+    """{commit: its subject line} from the Launcher's mirror; {} if it can't tell."""
+    result = subprocess.run(["git", "--git-dir", str(common.LAUNCHER_MIRROR), "log", "--no-walk=unsorted", "--format=%H %s", *commits],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    if result.returncode:
+        return {}
+    return dict(line.split(" ", 1) for line in result.stdout.splitlines() if " " in line)
+
+
+def page(settings, tree):
+    """downloads/builds.html: the builds with downloads, in the website's look (its stylesheet),
+    without scripts."""
+    rows = page_builds(settings, tree)
+    titles = subjects([doc["commit"] for doc, _, _, _ in rows])
+    repository = settings["LAUNCHER_REPO"].removesuffix(".git")
+    names = {p.variant: p.name for p in common.PLATFORMS.values()}
+    e = html.escape
+    body = []
+    for doc, build_tags, archived, files in rows:
+        badges = " ".join('<span class="uk-badge%s">%s</span>' % ({"stable": " uk-badge-success", "testing": " uk-badge-warning"}.get(tag, ""), tag)
+                          for tag in build_tags)
+        if archived:
+            badges += ' <span class="uk-text-muted">archived</span>'
+        commit = '<a href="%s/commit/%s"><code>%s</code></a>' % (e(repository), e(doc["commit"]), e(doc["commit"][:10]))
+        if titles.get(doc["commit"]):
+            commit += " " + e(titles[doc["commit"]])
+        platforms = ", ".join('<a href="%s" title="%s">%s</a>' % (e(path), e(doc["variants"][variant]["name"]), e(names.get(variant, variant)))
+                              for variant, path in sorted(files.items(), key=lambda item: names.get(item[0], item[0])))
+        body.append("<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td><td class=\"nowrap\">%s</td><td class=\"platforms\">%s</td></tr>"
+                    % (e(doc.get("version") or str(doc["build"])), badges, commit, e(doc["built"][:16].replace("T", " ")), platforms))
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Builds &middot; MultiMC</title>
+<link rel="stylesheet" href="{site}assets/css/uikit.multimc.min.css">
+<link rel="icon" type="image/png" href="{site}favicon-32x32.png">
+<style>.nowrap, .platforms a {{ white-space: nowrap; }}</style>
+</head>
+<body>
+<div class="uk-navbar uk-navbar-attached">
+<div class="uk-container uk-container-center uk-margin-top uk-margin-bottom">
+<a href="{site}" class="uk-navbar-brand"><img src="{site}images/infinity32.png" alt="MultiMC logo" class="uk-float-left">
+<h1 class="top-bar uk-float-left uk-margin-top-remove uk-margin-bottom-remove uk-margin-left">MultiMC</h1></a>
+</div>
+</div>
+<div class="uk-container uk-container-center uk-margin-top">
+<h2>Builds</h2>
+<div class="uk-overflow-container">
+<table class="uk-table uk-table-striped">
+<thead><tr><th>Build</th><th>Tags</th><th>Commit</th><th>Built (UTC)</th><th>Platforms</th></tr></thead>
+<tbody>
+{rows}
+</tbody>
+</table>
+</div>
+</div>
+</body>
+</html>
+""".format(site=SITE, rows="\n".join(body))
+
+
+def write_page(settings, tree):
+    """downloads/builds.html, written next to it and renamed into place. Returns its path."""
+    target = downloads_dir(settings) / PAGE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.parent / (TEMPORARY + target.name)
+    temporary.write_text(page(settings, tree))
+    os.chmod(temporary, 0o644)
+    os.replace(temporary, target)
+    return target
 
 
 def remove_archive(settings, build):

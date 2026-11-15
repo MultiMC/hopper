@@ -12,6 +12,7 @@ Like updater/test_deploy.py, they need HOPPER_TEST_DIR (default: $STATE) on btrf
 import gzip
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -150,12 +151,41 @@ class TestTags(unittest.TestCase):
         self.deploy(10)
         names = sorted(p.name for p in self.downloads().iterdir() if p.is_file())
         variants = ("linux-x86_64-qt5", "macos-x86_64-qt5.15")
-        self.assertEqual(names, sorted(["MultiMC-%s.tar.gz" % v for v in variants]
+        self.assertEqual(names, sorted(["builds.html"] + ["MultiMC-%s.tar.gz" % v for v in variants]
                                        + ["MultiMC-%s-%s.tar.gz" % (tag, v) for tag in ("latest", "testing") for v in variants]))
         self.assertTrue((self.downloads() / "archive/0.7.10/MultiMC-0.7.10-linux-x86_64-qt5.tar.gz").is_file())
         self.deploy(11)
         self.assertEqual(self.lin64_binary(self.downloads() / "MultiMC-latest-linux-x86_64-qt5.tar.gz"), b"linux 11")
         self.assertEqual(self.lin64_binary(self.downloads() / "MultiMC-linux-x86_64-qt5.tar.gz"), b"linux 10")
+
+    def page(self):
+        return (self.downloads() / "builds.html").read_text()
+
+    def page_rows(self):
+        """{version: the row's text} of the builds page."""
+        rows = re.findall(r"<tr><td><strong>([^<]+)</strong></td>(.*?)</tr>", self.page())
+        return dict(rows)
+
+    def test_builds_page_follows_the_tree(self):
+        self.deploy(10, 11, 12)
+        rows = self.page_rows()
+        # 11 has no tag and no archive: no downloads, not listed
+        self.assertEqual(list(rows), ["0.7.12", "0.7.10"])
+        self.assertIn(">latest<", rows["0.7.12"])
+        self.assertIn('href="MultiMC-latest-linux-x86_64-qt5.tar.gz"', rows["0.7.12"])
+        # an archived build links its archive, whose name doesn't move on
+        self.assertIn('href="archive/0.7.10/MultiMC-0.7.10-linux-x86_64-qt5.tar.gz"', rows["0.7.10"])
+        for path in re.findall(r'href="((?:archive/|MultiMC-)[^"]+)"', self.page()):
+            self.assertTrue((self.downloads() / path).is_file(), path)
+        self.assertNotIn("<script", self.page())
+
+        self.ok("tag.py", "stable", 11)
+        self.assertEqual(list(self.page_rows()), ["0.7.12", "0.7.11", "0.7.10"])
+        self.ok("remove.py", 12)
+        self.assertEqual(list(self.page_rows()), ["0.7.11", "0.7.10"])
+        before = self.page()
+        self.ok("prune.py", UPDATER_MAX_SIZE_MB=0)
+        self.assertEqual(self.page(), before)
 
     def test_archive_is_the_bundle(self):
         self.deploy(10)
