@@ -16,7 +16,7 @@ directory down and is run from the top of the checkout, e.g.
 
 | Directory | What |
 |-----------|------|
-| `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing, as JSON, for `web/`; `builds.py` lists a setup's builds, and checks and queues moving tags, withdrawing and pruning; `runs.py` cancels queued runs |
+| `daemon/` | What runs the jobs, and the views. `trigger.py` starts Laminar's jobs on new commits and schedules (`cron.py`: the schedules); `releases.py` lists and cleans up the releases in `RELEASES_DIR`; `overview.py` gathers what the setups have live and what Laminar is doing, as JSON, for `web/`; `builds.py` lists a setup's builds, and checks and queues moving tags, withdrawing and pruning; `runs.py` starts runs by hand and cancels queued ones |
 | `web/` | The view of all this in the browser, with Laminar's logs, the actions on builds, and `/api/overview`: `hopper-web`, in Go with only its standard library |
 | `launcher/` | The Launcher: `release-build.py` builds a release of all platforms (checkout, parallel builds, packaging, compatibility gate, manifest); `run-build.py` builds one platform in its toolchain container; `steps/` holds the build steps run inside the containers (`linux.sh`, `win32.sh` for both Windows platforms, `osx64.sh`, mounted at `/build`); `compat-check.py` is the compatibility gate, checking a build against its description in `expectations/`; `verify-build.py` checks an incremental release against a clean build of the same commit, with `compare-releases.py`; `dev-run.py` and `dev/` run CMake and make in a toolchain container for an IDE; `gui.py` runs a build on a virtual display and drives it, to check the GUI |
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
@@ -1380,7 +1380,7 @@ as it comes. If the overview can't be had, the page says why, and it doesn't sho
 one instead (the API answers 502 and `{"error": why}`); a page that can't reach the service
 says "not updating".
 
-Everything is a GET except the actions on a setup's builds (below) and cancelling a queued run. It listens on `127.0.0.1:8092`, with
+Everything is a GET except the actions on a setup's builds (below), starting a job and cancelling a queued run. It listens on `127.0.0.1:8092`, with
 Caddy in front as https://hopper.peterix.cz, and has no login, like Laminar's own site:
 whoever can reach it can look, and act on files2's builds; so runs don't say who asked for them.
 Requests from other sites are refused (`http.CrossOriginProtection`). Settings are in `web/main.go`. To try it from another machine, on the build server's
@@ -1396,6 +1396,22 @@ data:
 pushes older runs off it within days. Their logs stay at their URLs.
 
 A queued run has **Cancel** next to it, there and on its page, which asks first.
+
+The overview's jobs table has **Start…** for each job that can be started by hand: a form
+with the reason (required) and, for jobs that take one, a commit (empty: the job's default).
+It queues the run and goes to its page; the overview doesn't refresh while a form is open.
+
+### Starting a run by hand (`daemon/runs.py queue`, since 2026-11-15)
+
+    daemon/runs.py queue <job> --reason TEXT [--commit COMMIT]
+
+Queues a run with the reason "by hand: <reason>", the reason being required, and prints
+`{"run": "<job>:<number>"}`. Only jobs `runs.py` knows to be startable without parameters
+(`STARTABLE`, by the name before the setup): `launcher`, `translations`, `website`,
+`packages` and `template`, which take `COMMIT` (7 to 40 hex digits; their scripts check it's
+on the branch), and `patrons`, `verify` and `meta`, which don't. Not `tag`, `remove` and
+`prune`: they need a serial, and `daemon/builds.py` checks them first. The overview's JSON
+says, for each job, whether it can be started and takes a commit (`start`).
 
 ### Cancelling a queued run (`daemon/runs.py`, `laminar/cfg/before`)
 

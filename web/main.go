@@ -1,7 +1,7 @@
 // Command hopper-web shows what daemon/overview.py gathers and Laminar's logs in the browser.
 // It holds no logic of its own: the data is overview.py's JSON, a log is passed through from
 // Laminar's web server as it grows, actions on builds are checked and queued by
-// daemon/builds.py, and queued runs are cancelled by daemon/runs.py.
+// daemon/builds.py, and runs are started by hand and cancelled by daemon/runs.py.
 //
 //	main.go      configuration, server setup, startup
 //	overview.go  overview.py's JSON, and what the pages need from it
@@ -14,12 +14,13 @@
 //	OVERVIEW      the command that prints the overview, run without a shell; default
 //	              daemon/overview.py, from the hopper checkout
 //	BUILDS        the command for a setup's builds, likewise; default daemon/builds.py
-//	RUNS          the command that cancels queued runs, likewise; default daemon/runs.py
+//	RUNS          the command that starts and cancels runs, likewise; default daemon/runs.py
 //	LAMINAR_HTTP  Laminar's web server, default http://127.0.0.1:8091
 //
 // The only routes that aren't GET are the actions on a setup's builds (moving tags,
 // withdrawing, pruning): POST /builds/<setup>/check, which changes nothing, and /queue, which
-// queues the Laminar job that does it; and POST /run/<job>/<number>/cancel, for a queued run.
+// queues the Laminar job that does it; POST /job/<job>/queue, which starts a run by hand
+// (daemon/runs.py queue); and POST /run/<job>/<number>/cancel, for a queued run.
 package main
 
 import (

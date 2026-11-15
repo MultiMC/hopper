@@ -171,6 +171,8 @@ def laminar():
             "handled": entries[-1] if entries else None,
             "last_run": last_runs.get(name),
             "running": [r for r in running if r.split(":")[0] == name] if running is not None else None,
+            # whether it can be started from the web view, and if it takes a commit
+            "start": runs.startable(name),
         })
     return {
         "home": str(home),

@@ -100,6 +100,10 @@ type job struct {
 	} `json:"seen"`
 	LastRun *run     `json:"last_run"`
 	Running []string `json:"running"` // nil: laminard can't be asked
+	// Start: it can be started from here (daemon/runs.py queue); nil: it can't
+	Start *struct {
+		Commit bool `json:"commit"` // it takes a commit
+	} `json:"start"`
 }
 
 type run struct {

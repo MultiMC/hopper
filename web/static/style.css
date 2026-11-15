@@ -413,3 +413,22 @@ form.cancel {
     gap: 10px;
     margin-top: 14px;
 }
+
+/* Starting a job by hand: the form opens under its summary, in the jobs table */
+details.start summary {
+    cursor: pointer;
+    color: var(--link);
+    white-space: nowrap;
+}
+
+details.start form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: center;
+    margin-top: 6px;
+}
+
+details.start label {
+    white-space: nowrap;
+}

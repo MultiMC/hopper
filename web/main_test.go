@@ -144,6 +144,58 @@ func TestRunsPage(t *testing.T) {
 	}
 }
 
+func TestStartForms(t *testing.T) {
+	_, body := get(t, testServer(t, "http://unused").URL+"/")
+	wantAll(t, body, `action="/job/launcher-files2/queue"`, `aria-label="Commit for launcher-files2"`,
+		`action="/job/meta/queue"`, `aria-label="Why start meta"`)
+	if strings.Contains(body, `aria-label="Commit for meta"`) {
+		t.Error("a job without a commit is asked for one")
+	}
+	if strings.Contains(body, `action="/job/by-hand/queue"`) {
+		t.Error("a job that can't be started has a form")
+	}
+}
+
+func TestQueue(t *testing.T) {
+	server, calls := moveServer(t)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := client.PostForm(server.URL+"/job/launcher-files2/queue", url.Values{"reason": {"try the fix"}, "commit": {" abc1234 "}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusSeeOther || response.Header.Get("Location") != "/run/launcher-files2/7" {
+		t.Errorf("status %d, to %q", response.StatusCode, response.Header.Get("Location"))
+	}
+	if len(*calls) != 1 || strings.Join((*calls)[0], " ") != "queue launcher-files2 --reason try the fix --commit abc1234" {
+		t.Errorf("calls %v", *calls)
+	}
+
+	*calls = nil
+	response, err = client.PostForm(server.URL+"/job/meta/queue", url.Values{"reason": {"now"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if len(*calls) != 1 || slices.Contains((*calls)[0], "--commit") {
+		t.Errorf("an empty commit was passed: %v", *calls)
+	}
+
+	status, body := postForm(t, server.URL+"/job/meta/queue", url.Values{"reason": {"  "}})
+	if status != http.StatusConflict {
+		t.Errorf("a refusal: status %d", status)
+	}
+	wantAll(t, body, "Not started", "a reason is required")
+
+	*calls = nil
+	if status, _ := postForm(t, server.URL+"/job/a%2Fb/queue", url.Values{"reason": {"x"}}); status != http.StatusNotFound {
+		t.Errorf("a bad job name: status %d", status)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("a bad request reached the script: %v", *calls)
+	}
+}
+
 func TestCancel(t *testing.T) {
 	server, calls := moveServer(t)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -413,6 +465,12 @@ func fakeBuilds(calls *[][]string) command {
 		case "check":
 			return []byte(`{"moved": ["testing"]}`), nil
 		case "queue":
+			if len(args) > 2 && args[2] == "--reason" { // daemon/runs.py queue <job> --reason R [--commit C]
+				if strings.TrimSpace(args[3]) == "" {
+					return nil, errors.New("say why: a reason is required")
+				}
+				return []byte(`{"run": "` + args[1] + `:7"}`), nil
+			}
 			if slices.Contains(args, "99") {
 				return nil, errors.New("the tags have changed")
 			}

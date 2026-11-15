@@ -63,7 +63,8 @@
         "seen": {},
         "handled": null,
         "last_run": {"run": "launcher-files2:23", "job": "launcher-files2", "result": "success", "started": "2026-11-06T12:57:53+01:00", "seconds": 391, "reason": "trigger: <new> commit"},
-        "running": ["launcher-files2:24"]
+        "running": ["launcher-files2:24"],
+        "start": {"commit": true}
       },
       {
         "name": "meta",
@@ -72,7 +73,8 @@
         "seen": {"next": "2026-11-06T16:00:00+01:00"},
         "handled": null,
         "last_run": null,
-        "running": []
+        "running": [],
+        "start": {"commit": false}
       },
       {
         "name": "by-hand",

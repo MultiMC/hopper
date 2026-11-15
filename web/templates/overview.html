@@ -59,7 +59,7 @@
   </p>
   <div class="scroll">
   <table>
-    <thead><tr><th>Job</th><th>Started by</th><th>Last run</th><th>Result</th><th>Started</th><th class="number">Took</th><th>Now</th></tr></thead>
+    <thead><tr><th>Job</th><th>Started by</th><th>Last run</th><th>Result</th><th>Started</th><th class="number">Took</th><th>Now</th><th></th></tr></thead>
     <tbody>
     {{range .Jobs}}
     <tr>
@@ -78,6 +78,18 @@
         {{if .Unasked}}<span class="problem">laminard can't be asked</span>{{end}}
         {{range .RunLinks}}<span class="result running">running</span> {{template "runlink" .}}{{end}}
         {{if and (not .Running) .Seen.Next}}<span class="dim nowrap">next <span class="mono">{{shortTime .Seen.Next}}</span></span>{{end}}
+      </td>
+      <td>
+        {{if .Start}}
+        <details class="start">
+          <summary>Start…</summary>
+          <form method="post" action="/job/{{.Name}}/queue">
+            {{if .Start.Commit}}<label>Commit <input type="text" name="commit" size="12" maxlength="40" pattern="[0-9a-f]{7,40}" placeholder="default" aria-label="Commit for {{.Name}}"></label>{{end}}
+            <label>Why <input type="text" name="reason" size="24" maxlength="200" required aria-label="Why start {{.Name}}"></label>
+            <button type="submit" class="small primary">Start {{.Name}}</button>
+          </form>
+        </details>
+        {{end}}
       </td>
     </tr>
     {{end}}

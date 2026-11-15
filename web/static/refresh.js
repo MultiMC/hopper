@@ -15,9 +15,14 @@
         return selection && !selection.isCollapsed;
     }
 
+    // A start form is open (overview.html, the jobs table): replacing the page would close it
+    function starting() {
+        return main.querySelector("details.start[open]") !== null;
+    }
+
     function refresh() {
         // Replacing the page would drop a selection someone is about to copy
-        if (document.hidden || selecting()) {
+        if (document.hidden || selecting() || starting()) {
             return Promise.resolve();
         }
         return fetch(location.href, {cache: "no-store"})

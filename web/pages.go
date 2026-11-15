@@ -12,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -68,6 +69,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /run/{job}/{number}", s.withOverview("run", s.runData))
 	mux.HandleFunc("GET /run/{job}/{number}/log", s.handleLog)
 	mux.HandleFunc("POST /run/{job}/{number}/cancel", s.handleCancel)
+	mux.HandleFunc("POST /job/{job}/queue", s.handleQueue)
 	mux.HandleFunc("GET /api/overview", s.handleOverviewAPI)
 	mux.HandleFunc("GET /builds/{setup}", s.handleBuilds)
 	mux.HandleFunc("GET /api/builds/{setup}", s.handleBuildsAPI)
@@ -168,6 +170,40 @@ func (s *server) handleCancel(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("cancel", "run", job+":"+number)
 	http.Redirect(w, r, "/run/"+job+"/"+number, http.StatusSeeOther)
+}
+
+// handleQueue starts a run of a job by hand (daemon/runs.py queue, which decides which jobs
+// may be started and checks the commit) and goes on to the new run's page, or shows why it
+// wasn't queued.
+func (s *server) handleQueue(w http.ResponseWriter, r *http.Request) {
+	job := r.PathValue("job")
+	if !jobName.MatchString(job) {
+		http.NotFound(w, r)
+		return
+	}
+	args := []string{"queue", job, "--reason", r.PostFormValue("reason")}
+	if commit := strings.TrimSpace(r.PostFormValue("commit")); commit != "" {
+		args = append(args, "--commit", commit)
+	}
+	data, err := s.runs(r.Context(), args...)
+	var queued struct {
+		Run string `json:"run"`
+	}
+	if err == nil {
+		err = json.Unmarshal(data, &queued)
+	}
+	if err != nil {
+		slog.Error("queue", "job", job, "err", err)
+		o, _ := s.overviews.get(r.Context())
+		s.render(w, http.StatusConflict, "error", pageData{Overview: o, Heading: "Not started", Error: err.Error()})
+		return
+	}
+	slog.Info("queue", "job", job, "run", queued.Run, "reason", r.PostFormValue("reason"))
+	if name, number, found := strings.Cut(queued.Run, ":"); found && validRun(name, number) {
+		http.Redirect(w, r, "/run/"+name+"/"+number, http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // handleOverviewAPI serves overview.py's JSON as it wrote it. If it can't be had: 502 and
