@@ -22,7 +22,7 @@ directory down and is run from the top of the checkout, e.g.
 | `translations/` | `build.py` builds a translations release (the Translations repo's `release.py`, in its image); `template.py` updates the translations template from the Launcher source and pushes it |
 | `patrons/` | `update.py` makes the Patreon credits (`patrons.txt`) as a release |
 | `website/` | `build.py` builds the website (multimc.org) from the Website repo with Hugo, as a release; `publish.py` publishes it to the test site, or promotes the one on test to production |
-| `files/` | The files tree (files.multimc.org), shared by the Launcher, translations and Patreon releases: `deploy.py` deploys a release into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
+| `files/` | The files tree (files.multimc.org), shared by the Launcher, translations and Patreon releases: `deploy.py` deploys translations and the Patreon credits into the local tree; `publish.py` publishes what changed since the last publish to the live tree and the bucket and purges Cloudflare's cache; `pull.py` makes the local tree a copy of the live one; `snapshots.py` lists, takes, restores and removes the tree's snapshots |
 | `updater/` | The new updater's tree (the Design repo's `UpdaterFormats.md`): `deploy.py` deploys a Launcher release into it (the new layout's publisher); `tag.py`, `remove.py` and `prune.py` move the Testing and Stable tags, remove a build and keep the tree under its size cap; `validate.py` checks a document or a whole tree against the format; `test_*.py` their tests |
 | `keys/` | The new updater's signing keys, one script per step of the offline key ceremony: `make-key.py` makes a key pair, `write-keys.py` writes a keys document, `sign.py` signs a document, `verify.py` checks keys documents and signed documents; `test_keys.py` their tests |
 | `laminar/` | Laminar, which runs the jobs: `cfg/`, its config (`jobs/<job>.run` and `.conf`, `contexts/`), linked as `~/laminar/cfg`; `build.sh` and `Containerfile` build its binaries, linked against nothing but glibc |
@@ -51,10 +51,11 @@ automation measures up:
 - **Inspectable results:** a release directory keeps the source, build trees, logs,
   packages, deploy archives, gate reports and `manifest.json`.
 - **Fails closed:** a failed build or test stops the release; the gate refuses anything
-  its description (`launcher/expectations/`) doesn't allow; `files/deploy.py` refuses releases that aren't
-  releasable, were built for another system, or aren't newer; `updater/deploy.py` writes nothing
-  unless the new updater's tree as it would be passes the validator; `files/publish.py` refuses when
-  the live tree changed underneath it; settings files with unknown keys are refused.
+  its description (`launcher/expectations/`) doesn't allow; `files/deploy.py` and `updater/deploy.py`
+  refuse releases that aren't releasable, `updater/deploy.py` also ones built for another system or
+  not newer, and writes nothing unless the new updater's tree as it would be passes the validator;
+  `files/publish.py` refuses when the live tree changed underneath it, and any change to the old
+  update layout; settings files with unknown keys are refused.
 - **Versioned locally:** the local files trees are btrfs subvolumes, snapshotted before
   every change (`files/deploy.py`, `updater/deploy.py`, `files/pull.py`); any earlier state can be inspected or
   restored with `files/snapshots.py`.
@@ -100,9 +101,8 @@ at `updater/`), with a keys chain that doesn't verify or has expired, or with ro
 aren't exactly the newest keys document's. `common.prepare_build_output` writes the floor
 next to each build as `updater-keys-floor.json` (and removes one left by an earlier build
 with updater 2), where the build steps pick it up. Every release's `manifest.json` records
-the updater and root keys it was built with (`updater`), and `files/deploy.py` and
-`updater/deploy.py` refuse a release built with another updater or other keys than the
-setup's, so a build pinned to files2's test keys can't go anywhere else.
+the updater and root keys it was built with (`updater`), and `updater/deploy.py` refuses a
+release built with another updater or other keys than the setup's, so a build pinned to files2's test keys can't go anywhere else.
 
 **Container engine:** `CONTAINER_ENGINE` is `docker` (default; containers run as the
 calling user with `-u`) or `podman` (rootless, with `--userns=keep-id`, so the calling user
@@ -248,8 +248,9 @@ elsewhere; DIR must be new or empty.
    `build-<platform>.log`. Unit tests run for all but macOS (macOS binaries). Any failure
    stops the release.
 3. Packages them like TeamCity's deploy did: `packages/mmc-<branch>-<platform>.tar.gz`
-   (`.zip` for win32), same layout as the shipped packages; and `deploy/<platform>.tar.gz`,
-   the bundle with its permissions, for `files/deploy.py`.
+   (`.zip` for win32), same layout as the shipped packages (a record: nothing publishes them
+   since the cutover); and `deploy/<platform>.tar.gz`, the bundle with its permissions, for
+   `updater/deploy.py`.
 4. Runs `launcher/compat-check.py` for each platform against its description (`GATE_DESCRIPTIONS`).
 5. Writes `manifest.json`: commit, build number, version name (`major.minor.build`: major
    and minor from the Launcher's `CMakeLists.txt`; build numbers above 65535 are refused),
@@ -282,7 +283,7 @@ The counter isn't created automatically: a missing one stops the build.
 
 Standard output gets exactly one line, the release directory, as soon as it exists (also if
 the build fails later); all logging goes to standard error. So
-`files/deploy.py "$(launcher/release-build.py)"` works.
+`updater/deploy.py "$(launcher/release-build.py)"` works.
 
 ### Cleanup (`daemon/releases.py`)
 
@@ -290,7 +291,7 @@ the build fails later); all logging goes to standard error. So
     daemon/releases.py [--config FILE] cleanup [--dry-run]
 
 A Launcher release is ~1.2 GB, almost all of it `build/` (the compiler trees; win32 alone
-~750 MB). files/deploy.py only needs `packages/` and `deploy/`, so the cleanup first trims:
+~750 MB). updater/deploy.py only needs `deploy/`, so the cleanup first trims:
 Launcher releases older than the newest `RELEASES_KEEP_BUILD_TREES` (3) lose `build/` and
 `src/`, keeping packages, deploy archives, logs, compat reports and the manifest (~70 MB; a
 `TRIMMED` file says when). They can still be inspected and deployed again. Of each kind
@@ -463,10 +464,12 @@ macOS tree without Mach-O files each failed with the missing requirement named.
 ## Deploying
 
     files/pull.py [--dry-run]                         # FILES_ROOT := exact copy of FILES_ORIGIN (the files server)
-    files/deploy.py <release dir>                           # deploy a release into FILES_ROOT
+    updater/deploy.py <release dir>                         # deploy a Launcher build into FILES_ROOT (the new updater's tree)
+    files/deploy.py <release dir>                           # deploy translations or the Patreon credits into FILES_ROOT
     files/publish.py [--dry-run] [--no-bucket] [--no-purge] # publish what changed since the last publish
 
-Three kinds of release go into the tree: Launcher builds (`launcher/release-build.py`), translations
+Three kinds of release go into the tree: Launcher builds (`launcher/release-build.py`, into
+the new updater's tree: "The new updater's tree" below), translations
 (`translations/build.py`) and the Patreon credits (`patrons/update.py`). Deploying changes
 the local tree; publishing makes the live site match it.
 
@@ -475,55 +478,42 @@ the local tree; publishing makes the live site match it.
 Snapshots the tree (to undo it: `files/snapshots.py restore`), then changes it. Nothing
 is published; the tree is locked while it runs.
 
-**Launcher builds:** does what TeamCity's deploy steps did on the files server, with the same
-repoman (`IMAGE_DEPLOYER`, Toolchains: `containers/deployer`), as the calling user, without
-network: for each platform `repoman -c update push <platform> <branch> <build> <version>
-<bundle>/` (adds `update/<platform>/<branch>/<build>.json`, adds it to the channel's
-`index.json`, copies files the store doesn't have yet into `files/<md5>-<name>`) and
-`repoman push-file downloads <package>`. Refuses a build made for another system (the
-manifest's `UPDATER_BASE` must be the tree's `update/config.json` `base_url`) and one whose
-build number isn't higher than every version already in the channel.
-
-**The freeze and the bridge** (the cutover to the new updater, 2026-11-11; `Updater.md` in the
-Design repo, "The cutover"). Every Launcher with updater 1 takes whatever build the current
-layout has, and from the first build with updater 2 on it runs that updater. So the current
-layout is frozen first, and takes exactly one more build, by hand:
-
-1. `CURRENT_LAYOUT_FROZEN_AT=<build>`, the last build made with updater 1. From then on
-   `files/deploy.py` refuses Launcher builds; the release job passes `--skip-frozen`, which
-   skips the current layout with a log line, and goes on to the new updater's tree.
-   Translations and the Patreon credits are deployed as before.
-2. The setup is switched to updater 2. Its builds are in the new tree only, where no
-   Launcher with updater 1 sees them. Install one from the tree's downloads
-   (`downloads/MultiMC-latest-<variant>`) on every platform and update it to a later build: that is the
-   test of a bridge candidate, with the setup's real keys and hosts.
-3. `updater/tag.py stable <build>` and `files/publish.py`, then
-   `files/deploy.py --bridge <release>` and `files/publish.py`. `--bridge` refuses unless
-   the layout is frozen and still at the build it was frozen at on every platform, the
-   release is a build of `develop` (the only channel Launchers with updater 1 read,
-   whatever their branch) with updater 2 and every platform of `PLATFORMS`, and the build
-   is Stable in the new tree, locally and in what is published.
-4. Nothing goes into the current layout after it: a second `--bridge` is refused, and the
-   setting stays as it is.
-
-The rules are `common.frozen_layout_refusal`; `updater/test_deploy.py` tests them and
-`files/deploy.py`'s refusals. Not tested here: a `--bridge` that goes through (it needs
-repoman's image and a published tree); the rehearsal on files2 is that test.
-
-repoman prints `Failed to load channel "main"` for every platform: `channels.json` lists a
-`main` channel that has no directories. Harmless; TeamCity's deploys did the same.
-
 **Translations:** `translations/` becomes the release's files, plus the files of languages
 that kept their previous release (still named in the new index); everything else in there
 is removed, so nothing piles up.
 
 **Patreon credits:** `patrons.txt` replaces the tree's.
 
-Verified 2026-10-23: Launcher build 9999 of 2a684511 deployed into a fresh copy: four
-version files with the same structure, keys, URLs and permissions as TeamCity's last ones
-(4275-4278), the indexes extended, 41 new store files (59 MB), the four downloads replaced.
-Differences: win32 permissions are 0644/0755 instead of the VM's 0666/0777, and win32 gets
-the right version name (TeamCity's VM builds were named `0.0.0`).
+**Launcher builds** are refused: they go into the new updater's tree (`updater/deploy.py`).
+
+### The old update layout
+
+`update/` (the channels of updater 1), `files/` (its store, `<md5>-<name>`) and the
+`downloads/mmc-*` packages are the layout Launchers with updater 1 read. It stays published
+as the cutover left it: Launchers that haven't moved over yet read it to reach the bridge,
+and nothing writes there any more. `files/publish.py` refuses a publish that would change
+or remove anything in it (`common.old_layout_path`); `updater/prune.py` and the tag
+operations only touch the new tree and its `MultiMC-*` downloads.
+
+**The cutover** (`Updater.md` in the Design repo, "The cutover"). Every Launcher with
+updater 1 takes whatever build its channel has, and from the first build with updater 2 on
+it runs that updater. So the old layout was frozen at the last build made with updater 1,
+the setup switched to updater 2 (its builds went into the new tree only), and the old
+layout then took exactly one more build by hand, the bridge: a build of `develop` (the only
+channel Launchers with updater 1 read) with updater 2 and every platform, Stable in the new
+tree as published, and tested first by installing it from the new tree and updating it to
+a later build on every platform.
+
+- files2, the rehearsal, 2026-11-11 and 12: frozen at 5072, bridge 5073 ("The files2 test
+  system").
+- Production, 2026-11-14 and 15: frozen at 4325, bridge 4326 (Stable).
+
+Until then `files/deploy.py` did it: Launcher builds went into the old layout with
+TeamCity's repoman (repoman2, archived), `CURRENT_LAYOUT_FROZEN_AT` held the freeze, and
+`files/deploy.py --bridge` deployed the bridge under the rules of
+`common.frozen_layout_refusal`. All of that was removed after the cutover; it is in this
+repo's history. The first deploy with repoman, verified 2026-10-23 against TeamCity's last
+builds (4275-4278), produced the same version files, indexes and store files TeamCity's had.
 
 ### `files/publish.py`
 
@@ -551,8 +541,8 @@ restore, the tree's next deploy or tag move writes a serial that passes.
    interruption, working: already published files are reported and skipped.
 2. **Copies** the files there (as `FILES_ORIGIN_OWNER`, mode `FILES_ORIGIN_MODE`, each
    replaced atomically) in an order that never lets clients see an index whose files
-   aren't there yet: store files, translation files, version files, indexes, downloads,
-   anything else; removals last. The new updater's tree (`UPDATER_ROOT`) goes in its own
+   aren't there yet: translation files, translation indexes, downloads, anything else;
+   removals last. The new updater's tree (`UPDATER_ROOT`) goes in its own
    write order among them: content files, build manifests, keys documents and the mirror
    list, the tags document after all of those.
 3. **The bucket** (`BUCKET_TARGET`, an rclone `remote:path`; the rclone config with its key
@@ -621,8 +611,8 @@ so Launchers always see the current channel.
     files/snapshots.py list | create <label> | restore <snapshot> | remove <snapshot>... | cleanup [--dry-run] | init
 
 Each files tree (`FILES_ROOT`) is a btrfs subvolume. Read-only snapshots of it are kept
-next to it, in `FILES_ROOT.snapshots/<time>-<label>`; `files/deploy.py` (`before-deploy-<build>`)
-and `files/pull.py` (`before-pull`) take one before every change and refuse a tree that
+next to it, in `FILES_ROOT.snapshots/<time>-<label>`; `files/deploy.py` (`before-translations-<commit>`,
+`before-patrons`), `updater/deploy.py` (`before-updater-<build>`) and `files/pull.py` (`before-pull`) take one before every change and refuse a tree that
 isn't a subvolume. Snapshots share unchanged data with the tree, so each costs roughly what
 changed after it (a release: ~100 MB). They're plain directories: `diff -r` a snapshot
 against the tree to see what a deploy did.
@@ -698,11 +688,10 @@ Monocypher; that comes with the Launcher's own tests.
 
     updater/deploy.py [--config FILE] [--dry-run] [--if-configured] [--new-tree] [--allow-discontinuity] <release dir>
 
-The publisher of the new layout (component 4 of `Updater.md` in the Design repo), repoman's
-replacement: it deploys a Launcher release into the setup's new updater tree, as
-`files/deploy.py` deploys it into the current layout. The tree is `UPDATER_ROOT` in the
-local files tree (`updater/` on files2), a directory of its own next to `update/` and
-`files/`, so the same snapshots, lock and `files/publish.py` cover it, and it is served as
+The publisher of the new layout (component 4 of `Updater.md` in the Design repo), which
+replaced repoman: it deploys a Launcher release into the setup's new updater tree. The
+tree is `UPDATER_ROOT` in the local files tree (`updater/`), a directory of its own next to
+the old layout's `update/` and `files/`, so the same snapshots, lock and `files/publish.py` cover it, and it is served as
 `<UPDATER_ROOT>/` below each base URL of `FILES_MIRRORS`. It never touches
 the current layout. With `UPDATER_ROOT` empty (a setup without a tree) it
 refuses; `--if-configured` says so and exits 0 instead.
@@ -1024,8 +1013,7 @@ its own YubiKey (PIN and touch to sign) with an `age` paper copy:
 | online1 | `37659576a0ae1faeef47f3207e14c7dbfaabf15536e13e0caef1b700fd845430` |
 
 The online key's private half is in `~/keys/production/` on the build server. Production's
-settings still use updater 1: the keys come in with the freeze ("The freeze and the
-bridge"). Where the root keys and the passphrases are kept, and who else holds a copy, is
+settings took them with the freeze ("The old update layout", the cutover). Where the root keys and the passphrases are kept, and who else holds a copy, is
 decided and recorded privately, never in this repo.
 
 The steps below are how it was done (written 2026-11-09, gone through again 2026-11-14). It
@@ -1113,7 +1101,7 @@ the YubiKeys the same way, on any machine: the keys never leave them.
   here, as for files2. Production's settings don't change yet: `UPDATER_ROOT=updater`,
   `UPDATER_KEYS`, `UPDATER_ONLINE_KEY` (the build server's `~/keys/production/online1.pem`),
   `UPDATER_ROOT_KEYS` (the two root public keys) and `UPDATER_VERSION=2` are set together,
-  with the freeze ("The freeze and the bridge"); the keys alone with updater 1 are refused.
+  with the freeze ("The old update layout", the cutover); the keys alone with updater 1 are refused.
 - The renewal: the next keys document is signed about 18 months ahead, before the expiry,
   which also checks that both YubiKeys still sign and both PINs are still known. Nothing
   reminds anyone yet (G3 waits for a way of telling the maintainer that can't be missed):
@@ -1167,7 +1155,6 @@ published through the full production path (live-index check, copy to the files 
 R2, purge), 39 s.
 
     launcher/release-build.py --config config/files2.env
-    files/deploy.py --config config/files2.env $STATE/releases-files2/<build>
     updater/deploy.py --config config/files2.env $STATE/releases-files2/<build>
     files/publish.py --config config/files2.env [--dry-run]
 
@@ -1179,104 +1166,17 @@ to it. Since 2026-11-04 files2's Launchers are built with the new updater
 
 ### The cutover rehearsal
 
-The cutover (above, "The freeze and the bridge") done once on files2, with the same
-commands and in the same order, before production. It is also the only test of a
-`--bridge` that goes through.
-
-Run 2026-11-11 and 12, and it went as written: `F` was 5072 (develop 63e958fd, built by
-hand with updater 1), `B` 5073, `B+1` 5074, `B+2` 5075. The job skipped the frozen layout
-for all three; `--bridge` was refused before 5073 was Stable and before that was
-published, went through once, and was refused for 5074 after. An install of `B` updated
-to `B+1`, and an install of `F` moved over the bridge, asked for the tier, landed on
-Stable and later updated to 5075, on every platform but lin32 (no machine for it any
-more): lin64 on a virtual display, the others by hand. What it turned up:
-
-- By hand on the build server the scripts need `CONTAINER_ENGINE=podman` (step 1).
-- The trigger starts no run for a commit it has already built on another branch, so `B`
-  and the builds after it were queued by hand (`laminarc queue launcher-files2`).
-- files2 is frozen at 5072 since, with 5073 as its bridge.
-
-Two things about files2 as it is decide how it starts:
-
-- Launchers with updater 1 read the `develop` channel and nothing else. Until 2026-11-11
-  files2 built the Launcher's `updater` branch into a channel of that name, which they
-  never see, and its `develop` channel stopped at build 5048. It builds `develop` again
-  now, as production does, so the rehearsal's builds land where those Launchers look.
-- files2's builds have updater 2 already. The rehearsal needs a last build with updater 1
-  to freeze at, made by hand with the setting overridden.
-
-`F`, `B`, `B+1` and `B+2` are build numbers, in that order. Everything runs on the build
-server as hopper, with `--config config/files2.env` (left out below).
-
-**1. The last build with updater 1, `F`.** By hand, not through the job, with the updater
-settings overridden for the build and its deploy (the environment goes over the settings
-file):
-
-    export CONTAINER_ENGINE=podman UPDATER_VERSION=1 UPDATER_ROOT_KEYS=
-    launcher/release-build.py
-    files/deploy.py $STATE/releases-files2/F
-    files/publish.py
-    unset UPDATER_VERSION UPDATER_ROOT_KEYS
-
-(`CONTAINER_ENGINE=podman` because the jobs get it from Laminar's unit, and a shell on the
-build server doesn't; it is needed for every script run by hand there that starts a
-container: the build, both deploys, the publish.)
-
-Not `updater/deploy.py`: with the override it would take `F` into the new tree as Latest.
-Without the override it refuses `F`, as it should.
-
-**2. Installs of `F`,** one per platform, from the current layout's downloads
-(`downloads/mmc-develop-<platform>`): lin64, lin32, win32 on Windows XP, win32 on Windows 7
-or later, win32-5.15.2, osx64-5.15.2. Each says there is no update. These are the
-Launchers the cutover moves.
-
-**3. The freeze.** In `config/files2.env`: `CURRENT_LAYOUT_FROZEN_AT=F`. No build of the
-job may come between `F` and the freeze: it would have updater 2 and go into the `develop`
-channel, above `F`.
-
-**4. Builds with updater 2, `B` and `B+1`,** through the job (`launcher-files2`), one after
-the other. Each run's log says the current layout is frozen and the build isn't deployed to
-it, and the build is in the new tree. The installs of `F` still say there is no update:
-the frozen layout hides the new builds.
-
-**5. The candidate, `B`.** Between the two builds of step 4, install `B` on every platform
-from the new tree's downloads (then `downloads/updater/mmc-latest-<platform>`), next to the
-installs of `F`, on the Latest tier. After `B+1`: each updates to `B+1`, starts, and then
-says there is no update. That is the test `--bridge` can't make: `B`'s updater works, on
-every platform, against the published tree. The platforms are tested side by side.
-
-**6. `B` becomes Stable, then the bridge.**
-
-    updater/tag.py stable B
-    files/publish.py
-    files/deploy.py --bridge $STATE/releases-files2/B
-    files/publish.py
-
-Before the first publish, `--bridge` must refuse ("isn't published yet"); worth trying.
-The release directory of `B` must still be there (`RELEASES_KEEP`).
-
-**7. The installs of `F` move over.** Each is offered `B` by its old updater, updates and
-starts. Then, in each:
-
-- the setup wizard asks for the tier once, with Stable chosen;
-- a check says there is no update (`B` is Stable), and `updater/state.json` is there;
-- win32 on Windows 7 or later is offered the switch to the Qt 5.15 variant; on Windows XP
-  it isn't.
-
-**8. After the bridge.**
-
-- A third build, `B+2`, through the job: it skips the current layout again, whose channel
-  still ends at `B`.
-- `updater/tag.py stable B+2` and `files/publish.py`: the moved installs update to it
-  with the new updater.
-- `files/deploy.py --bridge` with `B+2` is refused: there is one bridge.
-
-What to keep from it: the job logs of steps 4 and 8, the Launcher logs of one install per
-platform from steps 5 and 7, and anything that didn't go as written here.
-
-files2 stays frozen afterwards, as production will be. To rehearse again, flush its
-current layout and its new tree and start over (a new tree needs
-`updater/deploy.py --new-tree` once, by hand).
+The cutover ("The old update layout") was done once on files2 first, 2026-11-11 and 12, with
+the commands production would use: `F` 5072 (develop 63e958fd, built by hand with updater 1)
+was the last build of the old layout, `B` 5073 the bridge, 5074 and 5075 builds after it.
+The job skipped the frozen layout for all of them; `--bridge` was refused before 5073 was
+Stable and before that was published, went through once, and was refused for 5074 after.
+An install of `B` updated to 5074, and an install of `F` moved over the bridge, asked for
+the tier, landed on Stable and later updated to 5075, on every platform but lin32 (no
+machine for it any more). It turned up that scripts run by hand on the build server need
+`CONTAINER_ENGINE=podman` (the jobs get it from Laminar's unit), and that the trigger starts
+no run for a commit it has already built on another branch. files2's old layout has ended
+at 5073 since. The step-by-step plan is in this repo's history.
 
 Seeded 2026-10-23 (as R2 only) from a copy of the live tree, with `update/config.json` (repoman's URLs)
 and every `update/<platform>/channels.json` pointed at files2. The Launcher takes the channel
@@ -1569,10 +1469,10 @@ history), `patrons-production` every day at noon. Their `.run` are links to one 
 `cfg/scripts/release`, which runs the same scripts the daemon ran, in the same order:
 
 - launcher: `launcher/release-build.py --incremental` (since 2026-11-09, in the setup's
-  `WORK_DIR`), `files/deploy.py`, `files/publish.py`; then
-  `updater/deploy.py --if-configured` and `files/publish.py` again, so the new updater's tree
-  only goes out after the current layout is live, and a failure there fails the job without
-  holding back the current layout (production has no tree yet and skips it, saying so)
+  `WORK_DIR`), `updater/deploy.py --if-configured`, `updater/update-test.py`,
+  `updater/prune.py` and one `files/publish.py`, after the update test, so a build that
+  fails it is never published. Since the cutover nothing goes into the old update layout
+  (before it, `files/deploy.py` and a publish of that came first).
 - translations: `translations/build.py`, `files/deploy.py`, `files/publish.py`
 - patrons: `patrons/update.py`, `files/deploy.py`, `files/publish.py`
 - website: `website/build.py`, `website/publish.py` (to test; production is still promoted

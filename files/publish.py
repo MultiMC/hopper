@@ -11,13 +11,19 @@ back to it, except the new updater's tree (UPDATER_ROOT): its tags document is r
 unless its serial is higher than the published one, since Launchers refuse a lower serial
 than they have seen. A restored tree gets one with its next deploy or tag move.
 
+The old update layout (update/, files/, the mmc-* downloads; lib/common.py old_layout_path)
+stays as it was after the cutover: Launchers that haven't moved over yet read it to reach
+the bridge. A publish that would change or remove anything in it is refused, before anything
+is copied.
+
 1. With FILES_ORIGIN set (a live tree other jobs also write to, like the files server's): checks
    that every changed file on the live tree is either its published or its new version,
    so nothing changed there that this publish doesn't know about (and publishing again,
    or after an interruption, still works). Then copies the files there, as
    FILES_ORIGIN_OWNER with mode FILES_ORIGIN_MODE, each replaced atomically, in an order
-   that never lets clients see an index whose files aren't there yet: store files,
-   translation files, version files, indexes, downloads, anything else; removals last.
+   that never lets clients see an index whose files aren't there yet: translation files,
+   translation indexes, downloads, anything else (the new updater's tree in its own write
+   order among them); removals last.
 2. The bucket (BUCKET_TARGET, an rclone remote:path; the rclone config with its key is
    BUCKET_CONFIG, outside this repo) gets the same changes, plus the download symlinks
    pointing at changed packages (the bucket has copies of them). With FILES_ORIGIN empty,
@@ -40,7 +46,6 @@ objects uploaded earlier aren't uploaded again.
 
 import argparse
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -65,13 +70,11 @@ def publishing_order(settings):
     def in_updater(*names):
         return lambda path: bool(updater) and any(path.startswith(updater + name) for name in names)
     return [
-        ("store files", lambda path: path.startswith("files/")),
         ("updater content files", in_updater("files/")),
         ("translation files", lambda path: path.startswith("translations/") and path not in TRANSLATION_INDEXES),
-        ("version files", lambda path: re.fullmatch(r"update/[^/]+/[^/]+/\d+\.json", path)),
         ("updater build manifests", in_updater("builds/")),
         ("updater keys and mirrors", in_updater("keys/", "mirrors.json")),
-        ("indexes", lambda path: path.startswith("update/") or path in TRANSLATION_INDEXES),
+        ("indexes", lambda path: path in TRANSLATION_INDEXES),
         ("updater tags", in_updater("tags.json")),
         ("downloads", lambda path: path.startswith("downloads/")),
         ("other files", lambda path: True),
@@ -107,6 +110,11 @@ def main():
         if not changes:
             log("nothing to publish")
             return
+        old_layout = sorted(path for path in changes if common.old_layout_path(path))
+        if old_layout:
+            common.die("refusing to publish changes to the old update layout, which stays as it is since "
+                       "the cutover (%d paths, e.g. %s); restore the tree (files/snapshots.py) or find what wrote there"
+                       % (len(old_layout), old_layout[0]))
         if settings["UPDATER_ROOT"]:
             # the new updater's tags never go back to a serial Launchers have passed
             updater_tree.check_published_serial(published, root, settings["UPDATER_ROOT"])

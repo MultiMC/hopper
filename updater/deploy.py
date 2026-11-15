@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Deploy a Launcher release into the new updater's tree (UPDATER_ROOT in FILES_ROOT, the
-Design repo's UpdaterFormats.md): the publisher of the new layout, repoman's replacement.
+Design repo's UpdaterFormats.md): the publisher of the new layout, which replaced repoman.
 
     updater/deploy.py [--config FILE] [--dry-run] [--if-configured] [--new-tree] [--allow-discontinuity] <release dir>
 

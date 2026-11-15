@@ -377,8 +377,7 @@ class TestPublishingOrder(unittest.TestCase):
         spec.loader.exec_module(publish)
         changes = {path: {"old": None, "new": "x"} for path in (
             "updater/tags.json", "updater/tags.json.sig", "updater/mirrors.json", "updater/keys/1.json",
-            "updater/builds/5.json", "updater/files/ab/abcd", "files/0123-MultiMC", "update/lin64/develop/5.json",
-            "update/lin64/develop/index.json", "downloads/mmc-develop-lin64.tar.gz", "mirrors/x")}
+            "updater/builds/5.json", "updater/files/ab/abcd", "downloads/MultiMC-latest-lin64.tar.gz", "mirrors/x")}
         order = [path for _, paths in publish.in_stages(changes, publish.publishing_order({"UPDATER_ROOT": "updater"}))
                  for path in paths]
         position = {path: order.index(path) for path in order}
@@ -391,64 +390,32 @@ class TestPublishingOrder(unittest.TestCase):
 
 
 
-class TestFrozenLayout(unittest.TestCase):
-    """The cutover's rules for the current layout: common.frozen_layout_refusal, and
-    files/deploy.py as far as it gets before repoman."""
+class TestOldLayout(unittest.TestCase):
+    """The old update layout stays as the cutover left it: files/deploy.py takes no Launcher
+    build, and files/publish.py refuses changes to it (common.old_layout_path)."""
 
-    def refusal(self, frozen=100, build=105, last=None, bridge=True, updater=2, stable=105, published_stable=105):
-        return common.frozen_layout_refusal(frozen, build, last or {"lin64": 100, "win32": 100}, bridge, updater,
-                                            stable, published_stable)
+    def test_old_layout_path(self):
+        for path in ("update/config.json", "update/lin64/develop/index.json", "files/0123-MultiMC",
+                     "downloads/mmc-develop-lin64.tar.gz", "downloads/mmc-develop-osx64"):
+            self.assertTrue(common.old_layout_path(path), path)
+        for path in ("updater/files/ab/abcd", "updater/tags.json", "downloads/MultiMC-latest-lin64.tar.gz",
+                     "downloads/archive/0.7.10/x.zip", "translations/index", "patrons.txt", "filesx/y"):
+            self.assertFalse(common.old_layout_path(path), path)
 
-    def test_not_frozen(self):
-        self.assertIsNone(self.refusal(frozen=None, bridge=False))
-        self.assertIn("isn't frozen", self.refusal(frozen=None))
-
-    def test_frozen(self):
-        self.assertIn("frozen at build 100", self.refusal(bridge=False))
-        self.assertIn("frozen at build 100", self.refusal(bridge=False, build=100))
-
-    def test_bridge(self):
-        self.assertIsNone(self.refusal())
-        self.assertIn("one bridge, and nothing after it", self.refusal(build=106, stable=106, published_stable=106,
-                                                                         last={"lin64": 105, "win32": 105}))
-        self.assertIn("one bridge", self.refusal(last={"lin64": 100, "win32": 105}), "half a bridge")
-        self.assertIn("isn't at the build it is frozen at (win32: 99", self.refusal(last={"lin64": 100, "win32": 99}))
-        self.assertIn("must be built with updater 2", self.refusal(updater=1))
-        self.assertIn("Stable is build 104", self.refusal(stable=104))
-        self.assertIn("no tree", self.refusal(stable=None))
-        self.assertIn("isn't published yet", self.refusal(published_stable=104))
-        self.assertIn("isn't published yet", self.refusal(published_stable=None))
-
-    def deploy(self, directory, *options, frozen="", branch="develop"):
-        """files/deploy.py on a tree whose develop channels are at build 100; (exit status, stderr)."""
-        root = Path(directory) / "files"
-        for platform in ("lin64", "osx64-5.15.2"):
-            channel = root / "update" / platform / "develop"
-            channel.mkdir(parents=True, exist_ok=True)
-            (channel / "index.json").write_text(json.dumps({"Versions": [{"Id": 100, "Name": "0.7.100"}]}))
-        (root / "update" / "config.json").write_text(json.dumps({"base_url": "https://files.example.org/update/"}))
-        config = Path(directory) / "test.env"
-        config.write_text('FILES_ROOT="%s"\nFILES_MIRRORS="%s"\nCURRENT_LAYOUT_FROZEN_AT="%s"\n' % (root, MIRRORS, frozen))
-        release = make_release(directory, 105)
-        manifest = json.loads((release / "manifest.json").read_text())
-        manifest["branch"] = branch
-        (release / "manifest.json").write_text(json.dumps(manifest))
-        result = subprocess.run([sys.executable, str(HOPPER / "files/deploy.py"), "--config", str(config), *options,
-                                 str(release)], capture_output=True, text=True)
-        return result.returncode, result.stderr
-
-    def test_deploy_refuses(self):
+    def test_deploy_refuses_launcher_builds(self):
         with tempfile.TemporaryDirectory() as directory:
-            self.assertEqual(self.deploy(directory, frozen="100")[0], 1)
-            self.assertIn("frozen at build 100", self.deploy(directory, frozen="100")[1])
-            status, output = self.deploy(directory, "--skip-frozen", frozen="100")
-            self.assertEqual((status, "isn't deployed to it" in output), (0, True), output)
-            self.assertIn("isn't frozen", self.deploy(directory, "--bridge")[1])
-            self.assertIn("must be a build number", self.deploy(directory, frozen="soon")[1])
-            # built with updater 1, as this setup is: no bridge
-            self.assertIn("must be built with updater 2", self.deploy(directory, "--bridge", frozen="100")[1])
-            self.assertIn("must be a build of develop", self.deploy(directory, "--bridge", frozen="100", branch="updater")[1])
-            self.assertIn("don't go together", self.deploy(directory, "--bridge", "--skip-frozen", frozen="100")[1])
+            root = Path(directory) / "files"
+            (root / "update").mkdir(parents=True)
+            (root / "update" / "config.json").write_text(json.dumps({"base_url": "https://files.example.org/update/"}))
+            config = Path(directory) / "test.env"
+            config.write_text('FILES_ROOT="%s"\nFILES_MIRRORS="%s"\n' % (root, MIRRORS))
+            release = make_release(directory, 105)
+            before = sorted(str(p.relative_to(root)) for p in root.rglob("*"))
+            result = subprocess.run([sys.executable, str(HOPPER / "files/deploy.py"), "--config", str(config),
+                                     str(release)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("is a Launcher build", result.stderr)
+            self.assertEqual(sorted(str(p.relative_to(root)) for p in root.rglob("*")), before)
 
 
 class TestSerial(unittest.TestCase):

@@ -679,7 +679,7 @@ def cleanup_snapshots(settings, dry_run=False):
 
 # Releases in RELEASES_DIR: Launcher builds (<build number>/) and translations-*, patrons-*,
 # template-* directories. A Launcher release's build/ (the compiler trees, ~1 GB) and src/
-# are only needed to look into how it was built: files/deploy.py uses its packages/ and deploy/.
+# are only needed to look into how it was built: updater/deploy.py uses its deploy/.
 
 TRIMMED = "TRIMMED"
 
@@ -752,38 +752,13 @@ def cleanup_releases(settings, dry_run=False):
     return done
 
 
-def frozen_layout_refusal(frozen, build, last, bridge, updater, stable, published_stable):
-    """Why a Launcher build may not go into the current layout, or None if it may: the rules
-    of the cutover (CURRENT_LAYOUT_FROZEN_AT in defaults.env). `frozen` is the build the
-    layout is frozen at (None: not frozen), `last` the highest build each platform's channel
-    has ({platform: number}), `bridge` whether it was asked for as the bridge, `updater` the
-    updater the release was built with, `stable` and `published_stable` the new tree's Stable
-    build in the local tree and in what is published (None: no tree).
-
-    Every Launcher with updater 1 takes whatever build the current layout has, and from the
-    bridge on it runs the new updater. So the layout takes exactly one more build after the
-    freeze, by hand, and only one that Launchers can go on from: built with updater 2, and
-    Stable in the new tree that is live."""
-    if frozen is None:
-        return "the current layout isn't frozen (CURRENT_LAYOUT_FROZEN_AT): there is no bridge to deploy" if bridge else None
-    if not bridge:
-        return ("the current layout is frozen at build %d (CURRENT_LAYOUT_FROZEN_AT): builds go into the new "
-                "updater's tree only; the bridge build is deployed with --bridge" % frozen)
-    ahead = sorted(p for p, number in last.items() if number > frozen)
-    if ahead:
-        return ("the current layout has a build after the freeze already (%s: %d): there is one bridge, "
-                "and nothing after it" % (ahead[0], last[ahead[0]]))
-    behind = sorted(p for p, number in last.items() if number != frozen)
-    if behind:
-        return "the current layout isn't at the build it is frozen at (%s: %d, not %d)" % (behind[0], last[behind[0]], frozen)
-    if updater != 2:
-        return "the bridge must be built with updater 2, this release has updater %d" % updater
-    if stable != build:
-        return ("the bridge must be Stable in the new updater's tree first (updater/tag.py stable %d); Stable is %s"
-                % (build, "build %d" % stable if stable else "not there: no tree"))
-    if published_stable != build:
-        return "the new updater's tree with build %d as Stable isn't published yet (files/publish.py)" % build
-    return None
+def old_layout_path(path):
+    """Whether a path in the files tree (relative to FILES_ROOT) is part of the old update
+    layout: update/, the store files/, and the mmc-* downloads (with their links). Nothing
+    writes there since the cutover (the bridge was its last build), and Launchers that
+    haven't moved over yet read it to reach the bridge, so files/publish.py refuses any
+    change to it."""
+    return path.startswith(("update/", "files/")) or path.startswith("downloads/mmc-")
 
 
 def channel_versions(index):

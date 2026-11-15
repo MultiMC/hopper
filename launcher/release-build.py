@@ -265,8 +265,9 @@ def build(settings, platforms, branch, src, build_root, out, build_number):
 
 def package(platforms, branch, build_root, out):
     """packages/: the downloads, as TeamCity's deploy named them (mmc-<branch>-<platform>,
-    .tar.gz or .zip). deploy/<platform>.tar.gz: the bundle with its permissions, which
-    files/deploy.py hands to repoman (TeamCity's package.tar.gz)."""
+    .tar.gz or .zip); since the cutover nothing publishes them, the manifest records their
+    hashes. deploy/<platform>.tar.gz: the bundle with its permissions, which updater/deploy.py
+    reads."""
     (out / "packages").mkdir()
     (out / "deploy").mkdir()
     for p in platforms:
