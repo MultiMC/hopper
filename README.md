@@ -754,7 +754,9 @@ links, special files, empty directories, files outside the bundle directory).
 The variants are in `lib/common.py` (`PLATFORMS`); a Launcher build has its own ID compiled
 in and matches it as a whole string. The name is what users see when they choose between
 variants. `supersedes` moves Launchers on Windows 7 and newer to Qt 5.15, unless their users
-choose to stay (Design/Updater.md, System requirements).
+choose to stay (Design/Updater.md, System requirements). Since 2026-11-16 it doesn't, until
+a crash of the Qt 5.15 build on some Windows 10 machines is fixed: `win32-5.15.2` lists no
+`supersedes`, so no Launcher is offered the move; installs on it stay on it.
 
 It also writes the download archives of the tags that moved (Latest; on a new tree all
 three, and Stable's archive), see Tag operations below.

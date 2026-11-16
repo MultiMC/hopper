@@ -94,8 +94,11 @@ PLATFORMS = {p.name: p for p in [
     Platform("lin32", "IMAGE_LIN32", "linux.sh", "MultiMC", "tar.gz", "linux-x86-qt5", "Linux, 32-bit"),
     Platform("win32", "IMAGE_WIN32", "win32.sh", "MultiMC", "zip", "windows-x86-qt5.6",
              "Windows, Qt 5.6 (for Windows XP and Vista)"),
+    # Doesn't supersede windows-x86-qt5.6 for now (2026-11-16): the Qt 5.15 build crashes a few
+    # seconds after start on some Windows 10 machines, where the Qt 5.6 build runs. Put it back
+    # once that's found and fixed.
     Platform("win32-5.15.2", "IMAGE_WIN32_QT515", "win32.sh", "MultiMC", "zip", "windows-x86-qt5.15",
-             "Windows, Qt 5.15", ("windows-x86-qt5.6",)),
+             "Windows, Qt 5.15"),
     Platform("osx64-5.15.2", "IMAGE_OSX64", "osx64.sh", "MultiMC.app", "tar.gz", "macos-x86_64-qt5.15", "macOS, Qt 5.15"),
 ]}
 
