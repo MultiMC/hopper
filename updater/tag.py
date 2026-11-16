@@ -130,7 +130,7 @@ def main():
                            % (e, snapshot.name))
         for tag in moved:
             for path in downloads.write_tag(settings, tree, tag, tags[tag]):
-                log("wrote %s" % path.relative_to(settings["FILES_ROOT"]))
+                log("wrote %s (%s, build %d)" % (path.relative_to(settings["FILES_ROOT"]), tag, tags[tag]))
         for b in archives:
             for path in downloads.write_archive(settings, tree, b):
                 log("wrote %s" % path.relative_to(settings["FILES_ROOT"]))

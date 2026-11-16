@@ -106,7 +106,7 @@ def main():
                        % (e, snapshot.name))
         for tag in moved:
             for path in downloads.write_tag(settings, tree, tag, tags[tag]):
-                log("wrote %s" % path.relative_to(settings["FILES_ROOT"]))
+                log("wrote %s (%s, build %d)" % (path.relative_to(settings["FILES_ROOT"]), tag, tags[tag]))
         if downloads.remove_archive(settings, build):
             log("removed build %d's archive in downloads/archive/" % build)
         log("wrote %s" % downloads.write_page(settings, tree).relative_to(settings["FILES_ROOT"]))
